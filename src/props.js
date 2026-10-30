@@ -2,7 +2,7 @@
 // Repeated objects use InstancedMesh so hundreds of them cost one draw call each.
 import * as THREE from 'three';
 import { GeoBuilder, rgb } from './geometry.js';
-import { makeSignAtlas, makeAdAtlas } from './textures.js';
+import { makeLeafCluster, makePalmFrond, makeSignAtlas, makeAdAtlas } from './textures.js';
 import { makeRng } from './utils.js';
 
 const _m = new THREE.Matrix4();
@@ -154,32 +154,36 @@ export function buildProps(ctx, group) {
   }
   setSignals(0);
 
-  // ---------------- trees
-  const trunk = mergeParts([part(Cyl(0.13, 0.22, 2.6, 6), { y: 1.3 }, '#6b4a2f')]);
-  const crown = mergeParts([
-    part(new THREE.IcosahedronGeometry(1.9, 1), { y: 3.9, sy: 0.85 }, '#ffffff'),
-    part(new THREE.IcosahedronGeometry(1.3, 0), { x: 0.8, y: 4.9, z: 0.3 }, '#ffffff'),
-    part(new THREE.IcosahedronGeometry(1.25, 0), { x: -0.7, y: 4.5, z: -0.6 }, '#ffffff'),
-  ]);
+  // ---------------- trees: a branching trunk and a crown of leaf cards that
+  // sway in the wind
+  const tree = makeTree(rng);
   const treeRecs = P.trees.map((t) => ({ ...t, rot: rng() * Math.PI * 2 }));
-  add(instanced(trunk, plain, treeRecs));
+  add(instanced(tree.trunk, plain, treeRecs));
   const greens = ['#4f7d34', '#5f8f3a', '#3f6b2c', '#6b9a3f', '#557a2b'];
-  add(instanced(crown, vc({ flatShading: true, roughness: 0.9 }), treeRecs, {
-    color: () => new THREE.Color(greens[Math.floor(rng() * greens.length)]),
+  const leafMat = swaying(vc({ map: makeLeafCluster(), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 }), 2.2, 0.05);
+  add(instanced(tree.crown, leafMat, treeRecs, {
+    color: () => new THREE.Color(greens[Math.floor(rng() * greens.length)]).multiplyScalar(0.95),
   }));
   for (const t of P.trees) C.addPost(t.x, t.z, 0.3 * (t.s || 1), 6);
 
   // ---------------- palms
-  const palmTrunk = Cyl(0.13, 0.22, 7.2, 6);
+  const palmTrunk = new THREE.CylinderGeometry(0.13, 0.22, 7.2, 10, 36);
   palmTrunk.translate(0, 3.6, 0);
   const tp = palmTrunk.attributes.position;
+  const ringCol = [];
+  const ring = new THREE.Color();
   for (let i = 0; i < tp.count; i++) {
     const y = tp.getY(i) / 7.2;
     tp.setX(i, tp.getX(i) + y * y * 0.9);
+    // the rings left by old fronds
+    ring.set('#8a6d4d').multiplyScalar(Math.round(tp.getY(i) / 0.2) % 2 ? 1 : 0.78);
+    ringCol.push(ring.r, ring.g, ring.b);
   }
+  palmTrunk.setAttribute('color', new THREE.Float32BufferAttribute(ringCol, 3));
   palmTrunk.computeVertexNormals();
-  add(instanced(mergeParts([part(palmTrunk, {}, '#8a6d4d')]), plain, P.palms));
-  add(instanced(makePalmFronds(), vc({ side: THREE.DoubleSide, roughness: 0.9 }), P.palms, {
+  add(instanced(mergeParts([part(palmTrunk, {}, null)]), plain, P.palms));
+  const frondMat = swaying(vc({ map: makePalmFrond(), alphaTest: 0.4, side: THREE.DoubleSide, roughness: 0.85 }), 6.5, 0.08);
+  add(instanced(makePalmFronds(), frondMat, P.palms, {
     color: () => new THREE.Color(greens[Math.floor(rng() * 3)]).multiplyScalar(1.1),
   }));
 
@@ -432,6 +436,7 @@ export function buildProps(ctx, group) {
     },
     update(dt, t) {
       setSignals(t);
+      windTime.value = t;
       for (const s of sprays) {
         s.scale.y = 1 + Math.sin(t * 6) * 0.06;
         s.material.opacity = 0.45 + Math.sin(t * 9) * 0.08;
@@ -465,14 +470,18 @@ function makePoolTexture() {
 
 function makePalmFronds() {
   const pos = [];
+  const uv = [];
   const idx = [];
-  const n = 9;
-  const segs = 6;
-  const len = 3.4;
+  const n = 13;
+  const segs = 8;
   const topX = 0.9;
   const topY = 7.1;
+  const rnd = makeRng(77);
   for (let k = 0; k < n; k++) {
-    const a = (k / n) * Math.PI * 2;
+    const a = (k / n) * Math.PI * 2 + rnd() * 0.3;
+    const len = 2.8 + rnd() * 1.1;
+    const lift = 0.5 + rnd() * 0.9;
+    const droop = 1.8 + rnd() * 1.4;
     const dx = Math.sin(a);
     const dz = Math.cos(a);
     const px = -dz;
@@ -480,12 +489,14 @@ function makePalmFronds() {
     const base = pos.length / 3;
     for (let s = 0; s <= segs; s++) {
       const t = s / segs;
-      const w = Math.sin(t * Math.PI) * 0.55 + 0.05;
+      const w = 0.62;
       const cx = topX + dx * t * len;
       const cz = dz * t * len;
-      const cy = topY + t * 0.9 - t * t * 2.2;
-      pos.push(cx + px * w, cy, cz + pz * w);
-      pos.push(cx - px * w, cy, cz - pz * w);
+      const cy = topY + t * lift - t * t * droop;
+      // the leaflets angle down from the rib, like a shallow V
+      pos.push(cx + px * w, cy - 0.12 * t, cz + pz * w);
+      pos.push(cx - px * w, cy - 0.12 * t, cz - pz * w);
+      uv.push(1, 1 - t, 0, 1 - t);
     }
     for (let s = 0; s < segs; s++) {
       const i = base + s * 2;
@@ -494,7 +505,81 @@ function makePalmFronds() {
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setIndex(idx);
   g.computeVertexNormals();
   return mergeParts([part(g, {}, '#ffffff')]);
+}
+
+// A street tree: a slightly bent trunk with five branches, and a crown of
+// crossed leaf cards spread over an ellipsoid. Card normals point away from the
+// crown centre so the whole crown shades like one soft mass.
+function makeTree(rng) {
+  const bark = '#5a4632';
+  const trunkParts = [];
+  const t = new THREE.CylinderGeometry(0.11, 0.21, 3.4, 9, 6);
+  t.translate(0, 1.7, 0);
+  const tp = t.attributes.position;
+  for (let i = 0; i < tp.count; i++) tp.setX(i, tp.getX(i) + Math.sin(tp.getY(i) * 0.9) * 0.08);
+  t.computeVertexNormals();
+  trunkParts.push(part(t, {}, bark));
+  for (let k = 0; k < 5; k++) {
+    const a = (k / 5) * Math.PI * 2 + rng() * 0.6;
+    const len = 1.3 + rng() * 0.6;
+    const br = new THREE.CylinderGeometry(0.035, 0.075, len, 6);
+    br.translate(0, len / 2, 0);
+    trunkParts.push(part(br, { y: 2.3 + rng() * 0.9, rx: Math.cos(a) * 0.9, rz: -Math.sin(a) * 0.9 }, bark));
+  }
+  const cards = [];
+  const centre = new THREE.Vector3(0, 4.3, 0);
+  const n = 46;
+  for (let k = 0; k < n; k++) {
+    // even spread over the crown's surface, a little inside it
+    const y = 1 - (2 * (k + 0.5)) / n;
+    const r = Math.sqrt(1 - y * y);
+    const a = k * 2.399963;
+    const d = new THREE.Vector3(Math.cos(a) * r, y, Math.sin(a) * r);
+    const p = centre.clone().add(new THREE.Vector3(d.x * 2.1, d.y * 1.6, d.z * 2.1).multiplyScalar(0.7 + rng() * 0.25));
+    const size = 1.7 + rng() * 0.6;
+    for (const turn of [0, Math.PI / 2]) {
+      const q = new THREE.PlaneGeometry(size, size);
+      q.rotateY(turn + rng() * Math.PI);
+      q.rotateX((rng() - 0.5) * 0.8);
+      q.translate(p.x, p.y, p.z);
+      const shade = 0.72 + 0.28 * Math.max(0, d.y * 0.5 + 0.5); // underside darker
+      const nor = q.attributes.normal;
+      const col = [];
+      for (let i = 0; i < nor.count; i++) {
+        nor.setXYZ(i, d.x, d.y, d.z);
+        col.push(shade, shade, shade);
+      }
+      q.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      cards.push(part(q, {}, null));
+    }
+  }
+  return { trunk: mergeParts(trunkParts), crown: mergeParts(cards) };
+}
+
+// Wind: leaves above `from` metres move with a slow sway and a faster flutter,
+// different for every instance. The shared time uniform is advanced by update().
+const windTime = { value: 0 };
+function swaying(m, from, amount) {
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.windTime = windTime;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float windTime;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+  {
+    float h = max(0.0, transformed.y - ${from.toFixed(2)});
+    vec3 ip = vec3(0.0);
+    #ifdef USE_INSTANCING
+      ip = instanceMatrix[3].xyz;
+    #endif
+    float ph = ip.x * 0.13 + ip.z * 0.17;
+    transformed.x += (sin(windTime * 1.3 + ph) + 0.35 * sin(windTime * 4.7 + ph * 3.0 + transformed.y * 2.0)) * ${amount.toFixed(3)} * h;
+    transformed.z += (cos(windTime * 1.1 + ph) + 0.35 * sin(windTime * 5.3 + ph * 2.0 + transformed.x * 2.0)) * ${(amount * 0.7).toFixed(3)} * h;
+  }`);
+  };
+  m.customProgramCacheKey = () => `sway${from}${amount}`;
+  return m;
 }

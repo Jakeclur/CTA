@@ -112,7 +112,7 @@ export class Pedestrians {
       bz,
       corner,
       dir: this.rng.chance(0.5) ? 1 : -1,
-      mode: 'walk', // walk | wait | cross | flee | down
+      mode: 'walk', // walk | wait | cross | flee | down | idle (an activity, see startActivity)
       speed: WALK * (0.85 + this.rng() * 0.3),
       t: 0,
       fall: 0,
@@ -141,6 +141,7 @@ export class Pedestrians {
 
   flee(p, fx, fz, time = 4) {
     if (p.mode === 'down') return;
+    if (p.mode === 'idle') this.clearActivity(p);
     p.mode = 'flee';
     p.t = time;
     p.threat = [fx, fz];
@@ -167,6 +168,8 @@ export class Pedestrians {
       if (inView && d < 80) continue;
       const p = this.add(x, z, bx, bz, (k + 1) % 4);
       p.dir = 1;
+      // a share of the crowd is already busy: on the phone, at a shop window, on a bench
+      if (this.rng.chance(0.3)) this.startActivity(p);
       return true;
     }
     return false;
@@ -211,6 +214,7 @@ export class Pedestrians {
       p.far = (p.pos.x - cam.x) ** 2 + (p.pos.z - cam.z) ** 2 > far2;
       this.step(p, dt, sig);
     }
+    this.meetUp(dt);
     this.drawLod();
   }
 
@@ -271,6 +275,23 @@ export class Pedestrians {
       gz = p.pos.z + (dz / len) * 5;
       speed = RUN;
       if (p.t <= 0) this.rejoin(p);
+    } else if (p.mode === 'idle') {
+      p.t -= dt;
+      if (p.activity === 'sit' && p.seat && !p.seated) {
+        // walk to the bench first
+        gx = p.seat.x;
+        gz = p.seat.z;
+        speed = p.speed;
+        // the bench's collider keeps walkers about a metre out, so sit from there
+        if (Math.hypot(gx - p.pos.x, gz - p.pos.z) < 1.2) p.seated = true;
+      } else {
+        p.facing = dampAngle(p.facing, p.faceTo, 4, dt);
+        if (p.seated) {
+          p.pos.x = damp(p.pos.x, p.seat.x, 8, dt);
+          p.pos.z = damp(p.pos.z, p.seat.z, 8, dt);
+        }
+      }
+      if (p.t <= 0) this.endActivity(p);
     } else if (p.mode === 'wait') {
       const c = sig.cycle;
       // the crossed road's traffic must be red, with enough time left to cross
@@ -300,7 +321,7 @@ export class Pedestrians {
         p.pos.z += (dz / len) * step;
       }
     }
-    if (p.mode !== 'down') {
+    if (p.mode !== 'down' && !p.seated) {
       w.colliders.resolveCircle(p.pos, 0.3, p.pos.y + 0.2, 1.6);
       g.vehicles.pushOut(p.pos, 0.3);
     }
@@ -311,7 +332,88 @@ export class Pedestrians {
     m.rotation.x = -p.fall * Math.PI * 0.5;
     if (p.fall > 0.01) m.position.y += p.fall * 0.25;
     // joints are only animated where they can be seen
-    if (!p.far) p.c.animate(dt, p.mode === 'down' || p.mode === 'wait' ? 0 : speed);
+    if (p.far) return;
+    if (p.mode === 'idle' && (p.activity !== 'sit' || p.seated)) p.c.pose(dt, p.activity, g.time);
+    else p.c.animate(dt, p.mode === 'down' || p.mode === 'wait' ? 0 : speed);
+  }
+
+  // ------------------------------------------------------------------ activities
+
+  // Stop for a while and do something: take a call, look in a shop window, or
+  // sit on a bench if there is a free one close by.
+  startActivity(p, kind) {
+    const r = this.rng;
+    const g = this.g;
+    if (!kind) {
+      const bench = (g.world.benches || []).find((b) => Math.hypot(b.x - p.pos.x, b.z - p.pos.z) < 14 && !this.list.some((q) => q.seat === b));
+      kind = bench && r.chance(0.7) ? 'sit' : r.chance(0.5) ? 'phone' : 'window';
+      if (kind === 'sit') {
+        // sit facing away from the backrest
+        p.seat = bench;
+        p.faceTo = bench.rot || 0;
+      }
+    }
+    p.mode = 'idle';
+    p.activity = kind;
+    p.seated = false;
+    p.t = kind === 'sit' ? 18 + r() * 30 : 7 + r() * 14;
+    if (kind === 'window') {
+      // face the buildings: away from the kerb, towards the middle of the block
+      const cx = (ROAD_LINES[p.bx] + ROAD_LINES[p.bx + 1]) / 2;
+      const cz = (ROAD_LINES[p.bz] + ROAD_LINES[p.bz + 1]) / 2;
+      const [tx, tz] = p.target;
+      const ex = tx - p.pos.x;
+      const ez = tz - p.pos.z;
+      // perpendicular to the direction of walking, on the block's side
+      let nx = -ez;
+      let nz = ex;
+      if (nx * (cx - p.pos.x) + nz * (cz - p.pos.z) < 0) {
+        nx = -nx;
+        nz = -nz;
+      }
+      p.faceTo = Math.atan2(nx, nz);
+    } else if (kind === 'phone') {
+      p.faceTo = p.facing + (r() - 0.5) * 2;
+    }
+  }
+
+  endActivity(p) {
+    this.clearActivity(p);
+    this.rejoin(p);
+  }
+
+  clearActivity(p) {
+    p.seat = null;
+    p.seated = false;
+    p.activity = null;
+    p.c.rig.body.position.y = 0;
+    p.c.rig.head.rotation.x = 0;
+    p.c.rig.hips.rotation.z = 0;
+  }
+
+  // Two people walking past each other sometimes stop for a chat.
+  meetUp(dt) {
+    this.meetT = (this.meetT || 0) - dt;
+    if (this.meetT > 0) return;
+    this.meetT = 1;
+    const L = this.list;
+    for (let i = 0; i < L.length; i++) {
+      const a = L[i];
+      if (a.mode !== 'walk' || a.far) continue;
+      for (let j = i + 1; j < L.length; j++) {
+        const b = L[j];
+        if (b.mode !== 'walk') continue;
+        const d = Math.hypot(a.pos.x - b.pos.x, a.pos.z - b.pos.z);
+        if (d > 2.2 || d < 0.6 || !this.rng.chance(0.3)) continue;
+        const t = 8 + this.rng() * 12;
+        for (const [p, q] of [[a, b], [b, a]]) {
+          this.startActivity(p, 'chat');
+          p.t = t;
+          p.faceTo = Math.atan2(q.pos.x - p.pos.x, q.pos.z - p.pos.z);
+        }
+        return;
+      }
+    }
   }
 
   // Reached the corner we were walking to.
@@ -339,6 +441,7 @@ export class Pedestrians {
     }
     p.corner = (p.corner + p.dir + 4) % 4;
     p.target = this.cornerPoint(p, p.corner);
+    if (this.rng.chance(0.18)) this.startActivity(p);
   }
 
   // After running away, head back to the nearest corner of the block we are on.
@@ -386,6 +489,7 @@ export class Pedestrians {
   }
 
   knockDown(p, v) {
+    if (p.mode === 'idle') this.clearActivity(p);
     p.mode = 'down';
     p.down = true;
     p.t = 5;

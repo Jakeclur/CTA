@@ -1,5 +1,6 @@
 // Sound, all synthesised with the Web Audio API (no audio files): engine, tyre
-// squeal, crashes, footsteps, sirens, horn, the city and the sea, and UI jingles.
+// squeal, crashes, footsteps, sirens, horn, the city and the sea, birds and
+// district ambience, and UI jingles.
 // The audio context can only start after a click or key press, so `unlock()` is
 // called from the Play / Continue buttons.
 
@@ -87,7 +88,7 @@ export class Audio {
   // Continuous sounds, called every frame.
   // car: { speed, maxSpeed, throttle, slip } or null; siren: 0..1 loudness;
   // beach: 0..1 closeness to the sea; horn: bool
-  update(t, { car, siren, beach, horn }) {
+  update(t, { car, siren, beach, horn, area, night = 0, dt = 0 }) {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
     const set = (param, v, tc = 0.06) => param.setTargetAtTime(v, now, tc);
@@ -110,7 +111,9 @@ export class Audio {
     }
     set(this.sirenGain.gain, siren * 0.05);
     if (siren > 0) this.siren.frequency.setTargetAtTime(Math.sin(t * 2.6) > 0 ? 960 : 640, now, 0.25);
-    set(this.cityGain.gain, 0.05);
+    const busy = area === 'Downtown' || area === 'Midtown' ? 1 : area === 'Palm Park' || area === 'Northside Hills' ? 0.35 : 0.65;
+    set(this.cityGain.gain, 0.025 + busy * 0.04 * (1 - night * 0.4), 0.8);
+    if (dt > 0) this.ambience(dt, area, night, beach);
     set(this.waveGain.gain, beach * (0.05 + Math.max(0, Math.sin(t * 0.7)) * 0.07), 0.3);
     set(this.hornGain.gain, horn ? 0.07 : 0, 0.02);
   }
@@ -155,12 +158,91 @@ export class Audio {
       case 'busted':
         this.tones(t, [440, 330, 220], 0.3, 0.14, 'square');
         break;
+      case 'alarm':
+        this.tones(t, [1480, 1180], 0.11, 0.06 * amount, 'square');
+        break;
+      case 'flutter':
+        // a flock taking off: a rush of wingbeats
+        for (let i = 0; i < 7; i++) this.burst(t + i * 0.05 + Math.random() * 0.03, 0.05, 0.07, 2400);
+        break;
+      case 'checkpoint':
+        this.tones(t, [784, 1175], 0.06, 0.11, 'triangle');
+        break;
       case 'buy':
         this.tones(t, [660, 990], 0.08, 0.12, 'triangle');
         break;
       default:
         break;
     }
+  }
+
+  // Occasional sounds that make each part of town sound different: birdsong in
+  // the park and the quiet streets, crickets there at night, gulls on the
+  // beach, far-off horns and sirens downtown.
+  ambience(dt, area, night, beach) {
+    const t = this.ctx.currentTime;
+    const leafy = area === 'Palm Park' ? 1 : area === 'Northside Hills' ? 0.7 : area === 'Harbour West' || area === 'Eastgate' ? 0.35 : 0.08;
+    const busy = area === 'Downtown' ? 1 : area === 'Midtown' ? 0.6 : 0.15;
+    const day = 1 - night;
+    const roll = (perSecond) => Math.random() < perSecond * dt;
+    if (roll(0.5 * leafy * day)) this.birdsong(t);
+    if (roll(0.7 * leafy * night)) this.crickets(t);
+    if (roll(0.35 * beach * day)) this.gull(t);
+    if (roll(0.12 * busy)) this.distantHorn(t);
+    if (roll(0.012 * busy)) this.distantSiren(t);
+  }
+
+  birdsong(t) {
+    const base = 2600 + Math.random() * 1800;
+    const n = 2 + Math.floor(Math.random() * 4);
+    for (let i = 0; i < n; i++) {
+      const s = t + i * (0.09 + Math.random() * 0.05);
+      this.sweep(s, base * (1 + Math.random() * 0.15), base * (1.25 + Math.random() * 0.3), 0.06, 0.012, 'sine');
+    }
+  }
+
+  crickets(t) {
+    const f = 4200 + Math.random() * 600;
+    for (let i = 0; i < 6; i++) this.sweep(t + i * 0.045, f, f, 0.025, 0.006, 'sine');
+  }
+
+  gull(t) {
+    const n = 1 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < n; i++) {
+      const s = t + i * 0.32;
+      this.sweep(s, 1500 + Math.random() * 200, 900, 0.26, 0.018, 'sawtooth', 1900);
+    }
+  }
+
+  distantHorn(t) {
+    const len = 0.2 + Math.random() * 0.45;
+    const f = 330 + Math.random() * 120;
+    this.sweep(t, f, f, len, 0.012, 'square', 700);
+    this.sweep(t, f * 1.26, f * 1.26, len, 0.008, 'square', 700);
+  }
+
+  distantSiren(t) {
+    for (let i = 0; i < 4; i++) this.sweep(t + i * 0.7, 620, 900, 0.7, 0.006, 'triangle', 1500);
+  }
+
+  // A tone gliding from f0 to f1, through a low-pass filter when one is given.
+  sweep(t, f0, f1, len, vol, type, lowpass) {
+    const g = gain(this.ctx, 0, this.master);
+    let to = g;
+    if (lowpass) {
+      to = this.ctx.createBiquadFilter();
+      to.type = 'lowpass';
+      to.frequency.value = lowpass;
+      to.connect(g);
+    }
+    const o = osc(this.ctx, type, f0, to, false);
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(f1, t + len);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + Math.min(0.02, len * 0.2));
+    g.gain.exponentialRampToValueAtTime(0.0005, t + len);
+    o.start(t);
+    o.stop(t + len + 0.02);
   }
 
   tones(t, freqs, each, vol, type) {

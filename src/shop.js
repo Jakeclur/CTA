@@ -63,7 +63,9 @@ export class Shops {
   prompt(m) {
     if (m.kind === 'dealer') return '<kbd>F</kbd> Browse cars for sale';
     if (m.kind === 'store') return '<kbd>F</kbd> Shop at PetroSol';
-    return this.g.player.vehicle ? '<kbd>F</kbd> Store this car in your garage' : '<kbd>F</kbd> Open your garage';
+    const v = this.g.player.vehicle;
+    if (v) return v.health < 1000 ? '<kbd>F</kbd> Store this car (it will be repaired)' : '<kbd>F</kbd> Store this car in your garage';
+    return '<kbd>F</kbd> Open your garage';
   }
 
   update(t) {
@@ -224,7 +226,8 @@ export class Shops {
     g.player.setPosition(d.x - 6, g.world.heightAt(d.x - 6, d.z - 4), d.z - 4, 0);
     g.player.setVisible(true);
     g.audio.play('door');
-    g.ui.notify(`${VEHICLE_TYPES[o.type].name} stored`, 'Take it out again from the garage bay at any time.', 'money');
+    const fixed = v.health < 1000 ? ' The mechanics have repaired it.' : '';
+    g.ui.notify(`${VEHICLE_TYPES[o.type].name} stored`, `Take it out again from the garage bay at any time.${fixed}`, 'money');
     g.saveNow();
     return null;
   }

@@ -142,6 +142,71 @@ export class Character {
   }
 }
 
+// Standing and sitting activities for pedestrians: on the phone, chatting with
+// gestures, looking in a shop window with hands behind the back, sitting on a
+// bench. Joints ease into each pose, with small movements so nobody freezes.
+Character.prototype.pose = function pose(dt, kind, t) {
+  const r = this.rig;
+  const set = (o, k, v, rate = 6) => (o.rotation[k] = damp(o.rotation[k], v, rate, dt));
+  const sway = Math.sin(t * 0.9 + this.phase) * 0.04;
+  let hipX = 0;
+  let kneeX = 0.04;
+  let bodyY = 0;
+  let armLx = 0.05;
+  let armRx = -0.05;
+  let armLz = 0.1;
+  let armRz = -0.1;
+  let elbowL = -0.25;
+  let elbowR = -0.25;
+  let headX = 0;
+  let headY = 0;
+  if (kind === 'phone') {
+    armRx = -0.35;
+    armRz = -0.55;
+    elbowR = -2.5;
+    headX = 0.12;
+    headY = Math.sin(t * 0.6 + this.phase) * 0.35;
+  } else if (kind === 'chat') {
+    const talk = Math.sin(t * 1.7 + this.phase);
+    armLx = -0.25 - Math.max(0, talk) * 0.4;
+    elbowL = -0.9 - Math.max(0, talk) * 0.5;
+    armRx = -0.2 - Math.max(0, -talk) * 0.35;
+    elbowR = -0.8;
+    headX = Math.sin(t * 3.1 + this.phase) * 0.06;
+    headY = Math.sin(t * 0.7 + this.phase) * 0.15;
+  } else if (kind === 'window') {
+    armLx = 0.45;
+    armRx = 0.45;
+    elbowL = elbowR = -0.7;
+    headX = 0.08;
+    headY = Math.sin(t * 0.35 + this.phase) * 0.4;
+  } else if (kind === 'sit') {
+    hipX = -1.5;
+    kneeX = 1.45;
+    bodyY = -0.43;
+    armLx = armRx = -0.35;
+    elbowL = elbowR = -0.7;
+    headY = Math.sin(t * 0.4 + this.phase) * 0.3;
+  }
+  set(r.legL.hip, 'x', hipX + (kind === 'sit' ? 0 : sway));
+  set(r.legR.hip, 'x', hipX - (kind === 'sit' ? 0 : sway * 0.5));
+  set(r.legL.knee, 'x', kneeX);
+  set(r.legR.knee, 'x', kneeX);
+  set(r.armL.shoulder, 'x', armLx);
+  set(r.armR.shoulder, 'x', armRx);
+  set(r.armL.shoulder, 'z', armLz);
+  set(r.armR.shoulder, 'z', armRz);
+  set(r.armL.elbow, 'x', elbowL);
+  set(r.armR.elbow, 'x', elbowR);
+  set(r.head, 'x', headX);
+  set(r.head, 'y', headY, 3);
+  set(r.hips, 'x', 0);
+  set(r.torso, 'y', 0);
+  r.body.position.y = damp(r.body.position.y, bodyY, 6, dt);
+  r.torso.scale.y = 1 + Math.sin(t * 2.2 + this.phase) * 0.008;
+  r.hips.rotation.z = kind === 'sit' ? 0 : sway * 0.3; // shifting weight
+};
+
 export class Player extends Character {
   constructor(scene) {
     super(scene, PLAYER_LOOK, false);

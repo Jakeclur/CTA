@@ -22,7 +22,7 @@ All four planned stages are built: the playable city (Stage 1), missions and pol
 | | | `C` | Snap camera behind the car |
 | | | `F` | Store the car (in the garage bay) |
 
-`M` opens the city map (click to set a waypoint, right-click to clear it), `F3` shows performance stats and `Esc` pauses. The pause menu has the **Missions** list. Click the game window to capture the mouse. If your browser blocks mouse capture, you can still look around by holding the mouse button and dragging.
+After a failed mission, press `R` within 15 seconds to retry from the last checkpoint. `M` opens the city map (click to set a waypoint, right-click to clear it), `F3` shows performance stats and `Esc` pauses. The pause menu has the **Missions** list. Click the game window to capture the mouse. If your browser blocks mouse capture, you can still look around by holding the mouse button and dragging.
 
 ## Features
 
@@ -38,7 +38,7 @@ All four planned stages are built: the playable city (Stage 1), missions and pol
 
 * **Missions:** a data-driven mission system (`src/missionData.js` holds the missions, `src/missions.js` runs them) with phone messages, objective text and distances, 3D markers, timers, mission intro banners and "Mission passed" and "Mission failed" screens. Missions fail if you black out or get busted, and can be abandoned or replayed from the pause menu.
 * **Three missions:**
-  * **First Run** starts by phone a few seconds into a new game: meet Marco at Palm Park, take his van and deliver it to Solano Customs ($500).
+  * **First Run** starts by phone a few seconds into a new game: meet Marco at Palm Park, take his van along his route through four checkpoints and deliver it to Solano Customs ($500, plus a speed bonus).
   * **Hot Property** (after First Run, start marker outside Solano Customs): steal a Patrol Cruiser from the police station, lose the police, and deliver it to the Port Docks ($1,200).
   * **Beach Run** (after First Run, start marker outside Solano Customs): collect a medical kit from the lifeguard tower and race it to the hospital in 80 seconds ($800).
 * **Wanted level, 1 to 4 stars:** crimes raise it: stealing a police car, ramming police, carjacking, reckless crashes into traffic, hitting a pedestrian, and driving away from police at one star. Police cars spawn out of view, route over the road grid, chase, and search where they last saw you. Hide out of sight long enough and the stars clear. Officers get out and chase you on foot, and if one catches you, you are **busted**: taken to the police station and fined. At 3 and 4 stars the police also set **roadblocks** of parked cruisers across the road ahead of you.
@@ -60,6 +60,20 @@ All four planned stages are built: the playable city (Stage 1), missions and pol
 * **PetroSol stores:** snacks, burgers and first aid kits restore health.
 * **Port Docks:** a container wharf at the east end of the beach with stacks of containers, two gantry cranes and a cargo ship.
 * **Tougher police:** a fourth wanted star and roadblocks.
+
+### Stage 2 polish and a livelier city
+
+* **First Run, rebuilt:** after meeting Marco you drive his van through four route checkpoints (rings on the road and on the minimap) before the drop-off. Reaching a checkpoint saves your progress in the mission. If the mission fails (the van is wrecked, you black out or get busted), press `R` within 15 seconds to restart from the last checkpoint with the van put back. Passing shows the pay, the time taken and a speed bonus for beating the par time ($500, plus $150 under 2:30). Hot Property and Beach Run also have checkpoints, and Hot Property has a speed bonus too (Beach Run already races the clock).
+* **Car damage:** every car has health. Crashes dent the bodywork where they hit (the panels are pushed in), the car loses power when badly damaged, smokes grey and then black, and is wrecked (no drive) at zero. The HUD shows your car's condition under the health bar. Storing a car in the Solano Customs garage repairs it.
+* **Driving feel:** springy suspension that squats under acceleration, dives under braking, leans in corners and bounces over kerbs; sparks when you scrape walls or other cars; skid marks on the road from slides, handbrake turns and hard braking (they fade out after a while).
+* **Car alarms:** about a third of parked cars have an alarm. Breaking in sets it off: the horn beeps and the lights flash, people nearby run off, and police within earshot give you a wanted star.
+* **More parked cars:** nearly three times as many cars parked along the kerbs.
+* **People with something to do:** pedestrians sit on benches, stop to take a phone call, look in shop windows, wait at corners and stop to chat when they meet someone. They drop what they are doing and run when there is trouble.
+* **Wildlife:** flocks of pigeons peck around the fountain and benches and take off in a flurry when you walk or drive at them, then drift back down later. Gulls wheel over the beach.
+* **Trees and palms rebuilt:** trees have bent trunks, branches and leaf clusters; palms have ringed trunks and drooping fronds. Both sway in the wind.
+* **Street atmosphere:** steam drifts from some manholes (thicker at night), and lit shop windows throw warm light across the pavement after dark.
+* **District sounds:** birdsong in the park and quiet streets by day and crickets at night, gulls at the beach, distant horns and the occasional far-off siren downtown, and a city hum that is louder in the centre.
+* **Traffic etiquette:** drivers turning across the oncoming lanes wait at the line for a gap instead of cutting in front of other cars.
 
 ### Menus, settings and saving
 
@@ -87,10 +101,11 @@ All four planned stages are built: the playable city (Stage 1), missions and pol
 
 ## Known limitations
 
-* AI drivers keep to the inner lane and do not give way when turning across oncoming traffic, so they occasionally bump into each other at intersections.
+* AI drivers keep to the inner lane and do not change lanes. They give way when turning across oncoming traffic, but a driver who has waited about nine seconds goes anyway.
 * Only your own car's headlight lights up the road. Other cars show glowing lamps and light beams in the air but do not light the ground.
 * There are no weapons. The police can only arrest you on foot; in a car you escape them or get boxed in.
-* Cars do not take damage or break down (your health does). The car physics are arcade-style and cars cannot flip.
+* The car physics are arcade-style and cars cannot flip. Dents are pushed into the body shape, but doors and panels do not come off. AI traffic cars take damage too but are not repaired.
+* Only one checkpoint is kept per mission, and the retry restores your position, car and mission timer but not your cash or wanted level.
 * Traffic, pedestrians and parked cars are not saved; the city refills around you when you load. Owned cars return to your garage when you reload.
 * Pedestrians only cross the road at the corners of blocks, and a few can get briefly stuck against street furniture before they find their way around it.
 * Low kerbs and steps are smoothed rather than collided with, and you cannot climb onto objects.
@@ -151,14 +166,15 @@ src/
   roads.js            The road network as a graph: lanes, route finding and GPS routes
   ai.js               AI driving: steering towards a point, following a route, getting unstuck
   traffic.js          AI traffic: lanes, turns, traffic lights, queueing, spawning around the player
-  pedestrians.js      Pedestrians: pavement walking, crossings, dodging, fleeing, knock-downs
+  pedestrians.js      Pedestrians: pavement walking, crossings, activities (benches, phone, window shopping, chats), dodging, fleeing, knock-downs
+  ambient.js          Pigeon flocks, gulls and manhole steam
   police.js           Wanted level, police pursuit, officers on foot, arrests, roadblocks
   missions.js         Mission engine: steps, markers, objectives, timers, pass and fail
   missionData.js      The missions themselves, as data
   shop.js             Car dealer, garage of owned cars, PetroSol stores
-  audio.js            Synthesised sound effects and engine, siren and ambient loops
+  audio.js            Synthesised sound effects, engine, siren, district ambience (birds, gulls, crickets, distant horns)
   perf.js             Frame timing, dynamic resolution and benchmark statistics
-  effects.js          Tyre smoke and crash dust particles
+  effects.js          Tyre and engine smoke, crash dust, sparks and skid marks
   interactables.js    Cash pickups and vending machines
   minimap.js          Rotating minimap with GPS route and full-screen map with waypoints
   ui.js               Menus, settings form, HUD, missions and shop screens, notifications
@@ -170,7 +186,7 @@ assets/               Reserved for future audio and images (everything is genera
 
 ### Adding a mission
 
-Add an object to `MISSIONS` in `src/missionData.js`. The comment at the top of that file lists the step types (`message`, `npc`, `goto`, `spawnVehicle`, `enter`, `drive`, `wanted`, `loseWanted`, `timer`, `reward`). Give it `requires` to unlock it after another mission and `start` to place its start marker in the city.
+Add an object to `MISSIONS` in `src/missionData.js`. The comment at the top of that file lists the step types (`message`, `npc`, `goto`, `spawnVehicle`, `enter`, `drive`, `checkpoints`, `wanted`, `loseWanted`, `timer`, `reward`). Add `checkpoint: true` to a step to save a retry point when it starts, and give the reward a `par` time in seconds and a `bonus` for beating it. Give it `requires` to unlock it after another mission and `start` to place its start marker in the city.
 
 ### Adding a vehicle
 
@@ -186,6 +202,4 @@ Add an entry to `VEHICLE_TYPES` in `src/vehicles.js` with its size, its shape (h
 
 ## Next steps
 
-The four planned stages are done, and work has started on the graphics and playability plan: Phase 1 (performance base) and Phase 2 (the look) are built. Phases 3 to 5 cover driving feel (handling, damage, gamepad), a livelier world (rain, smarter traffic and police) and more things to do. An older suggestion for a next prompt:
-
-> Continue the CTA project in this repository (read the README first; all four stages are built). Add **Stage 5: polish and depth**. Give AI drivers right-of-way rules at intersections so they wait for oncoming traffic before turning across it, and let them use both lanes with lane changes around parked cars. Add a simple vehicle damage model (smoke and reduced top speed when a car is badly damaged, repairs at Solano Customs). Add two more missions using the existing step types, including one at night. Add touch controls for tablets. Keep every existing feature working, test for console errors, and update the README.
+The four planned stages, Phase 1 (performance), Phase 2 (the look) and the Stage 2 polish and living-city update are built. Still open: lane changes for AI drivers, rain and weather, more missions (including a night one), touch and gamepad controls, and measuring frame rates on real hardware.
