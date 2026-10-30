@@ -38,10 +38,38 @@ const CROSS = {
   3: [{ db: [-1, 0], to: 2, road: 'ns' }, { db: [0, 1], to: 0, road: 'ew' }],
 };
 
+// Far-away pedestrians are three instanced shapes (legs, body, head) for the whole crowd.
+const LOD_CAPACITY = 48;
+const _m = new THREE.Matrix4();
+const _q = new THREE.Quaternion();
+const _s = new THREE.Vector3(1, 1, 1);
+const _c = new THREE.Color();
+
+function lodMeshes(scene) {
+  const mat = new THREE.MeshStandardMaterial({ roughness: 0.8 });
+  const make = (geo) => {
+    const m = new THREE.InstancedMesh(geo, mat, LOD_CAPACITY);
+    m.count = 0;
+    m.frustumCulled = false;
+    m.setColorAt(0, _c.set('#ffffff'));
+    scene.add(m);
+    return m;
+  };
+  const legs = new THREE.BoxGeometry(0.34, 0.9, 0.2);
+  legs.translate(0, 0.45, 0);
+  const body = new THREE.BoxGeometry(0.44, 0.62, 0.24);
+  body.translate(0, 1.22, 0);
+  const head = new THREE.SphereGeometry(0.13, 8, 6);
+  head.translate(0, 1.66, 0);
+  return { legs: make(legs), body: make(body), head: make(head) };
+}
+
 export class Pedestrians {
   constructor(game) {
     this.g = game;
     this.list = [];
+    this.lod = lodMeshes(game.scene);
+    this.lodDistance = 35;
     this.rng = makeRng(2468);
     this.target = PED_DENSITY.medium;
     this.spawnT = 0;
@@ -55,6 +83,7 @@ export class Pedestrians {
   clear() {
     for (const p of this.list) p.c.dispose(this.g.scene);
     this.list = [];
+    this.drawLod();
   }
 
   randomLook() {
@@ -67,10 +96,13 @@ export class Pedestrians {
   }
 
   add(x, z, bx, bz, corner) {
-    const c = new Character(this.g.scene, this.randomLook(), true);
+    const look = this.randomLook();
+    const c = new Character(this.g.scene, look, true);
     c.mesh.rotation.order = 'YXZ';
     const p = {
       c,
+      look,
+      far: false,
       pos: new THREE.Vector3(x, this.g.world.heightAt(x, z), z),
       facing: 0,
       bx,
@@ -170,7 +202,40 @@ export class Pedestrians {
       }
     }
     const sig = g.world.signals(g.time);
-    for (const p of this.list) this.step(p, dt, sig);
+    const cam = g.camera.position;
+    const far2 = this.lodDistance * this.lodDistance;
+    for (const p of this.list) {
+      p.far = (p.pos.x - cam.x) ** 2 + (p.pos.z - cam.z) ** 2 > far2;
+      this.step(p, dt, sig);
+    }
+    this.drawLod();
+  }
+
+  // Distant pedestrians: hide the jointed model, draw a simple instanced figure.
+  drawLod() {
+    const L = this.lod;
+    L.legs.count = L.body.count = L.head.count = 0;
+    for (const p of this.list) {
+      const far = p.far && L.body.count < LOD_CAPACITY;
+      p.c.mesh.visible = !far;
+      if (!far) continue;
+      const m = p.c.mesh;
+      _q.setFromEuler(m.rotation);
+      _m.compose(m.position, _q, _s);
+      const i = L.body.count++;
+      L.legs.count++;
+      L.head.count++;
+      L.legs.setMatrixAt(i, _m);
+      L.body.setMatrixAt(i, _m);
+      L.head.setMatrixAt(i, _m);
+      L.legs.setColorAt(i, _c.set(p.look.pants));
+      L.body.setColorAt(i, _c.set(p.look.jacket));
+      L.head.setColorAt(i, _c.set(p.look.skin));
+    }
+    for (const m of [L.legs, L.body, L.head]) {
+      m.instanceMatrix.needsUpdate = true;
+      m.instanceColor.needsUpdate = true;
+    }
   }
 
   step(p, dt, sig) {
@@ -242,7 +307,8 @@ export class Pedestrians {
     m.rotation.y = p.facing;
     m.rotation.x = -p.fall * Math.PI * 0.5;
     if (p.fall > 0.01) m.position.y += p.fall * 0.25;
-    p.c.animate(dt, p.mode === 'down' || p.mode === 'wait' ? 0 : speed);
+    // joints are only animated where they can be seen
+    if (!p.far) p.c.animate(dt, p.mode === 'down' || p.mode === 'wait' ? 0 : speed);
   }
 
   // Reached the corner we were walking to.

@@ -25,6 +25,7 @@ export function part(geo, t = {}, color = '#ffffff') {
 }
 
 // Merge several primitives into one geometry with a colour attribute.
+// A part whose color is null keeps the colours already in its geometry.
 export function mergeParts(parts) {
   const pos = [];
   const nor = [];
@@ -38,7 +39,8 @@ export function mergeParts(parts) {
     const gn = g.attributes.normal;
     const gu = g.attributes.uv;
     _nm.getNormalMatrix(p.m);
-    _c.set(p.color);
+    const gc = p.color === null ? g.attributes.color : null;
+    if (!gc) _c.set(p.color);
     for (let i = 0; i < gp.count; i++) {
       _v.fromBufferAttribute(gp, i).applyMatrix4(p.m);
       pos.push(_v.x, _v.y, _v.z);
@@ -46,7 +48,8 @@ export function mergeParts(parts) {
       nor.push(_n.x, _n.y, _n.z);
       if (gu) uv.push(gu.getX(i), gu.getY(i));
       else uv.push(0, 0);
-      col.push(_c.r, _c.g, _c.b);
+      if (gc) col.push(gc.getX(i), gc.getY(i), gc.getZ(i));
+      else col.push(_c.r, _c.g, _c.b);
     }
     if (g.index) for (let i = 0; i < g.index.count; i++) idx.push(g.index.getX(i) + off);
     else for (let i = 0; i < gp.count; i++) idx.push(i + off);

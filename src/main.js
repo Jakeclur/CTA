@@ -21,16 +21,26 @@ import { Audio } from './audio.js';
 import { Effects } from './effects.js';
 import { setVehicleNight } from './vehicles.js';
 import { Shops } from './shop.js';
+import { PerfMonitor, frameStats } from './perf.js';
 import { loadSettings, saveSettings, loadProgress, saveProgress, clearProgress, hasProgress, DEFAULT_PROGRESS } from './save.js';
 import { ROAD_LINES, ROAD_HALF, CITY_NAME } from './config.js';
 
 window.__ctaStarted = true;
 
+// Quality presets. Medium is tuned for laptops with built-in graphics; High and
+// Ultra are for dedicated graphics cards. lodCars / lodPeds: metres from the
+// camera beyond which cars and people switch to their simple instanced versions.
 const QUALITY = {
-  low: { pixelRatio: 0.75, shadows: false, shadowSize: 1024, antialias: false },
-  medium: { pixelRatio: 1, shadows: true, shadowSize: 1024, antialias: false },
-  high: { pixelRatio: 1.5, shadows: true, shadowSize: 2048, antialias: true },
+  low: { label: 'Low', pixelRatio: 0.75, shadows: false, shadowSize: 1024, antialias: false, lodCars: 45, lodPeds: 25 },
+  medium: { label: 'Medium', pixelRatio: 1, shadows: true, shadowSize: 1024, antialias: false, lodCars: 70, lodPeds: 35 },
+  high: { label: 'High', pixelRatio: 1.5, shadows: true, shadowSize: 2048, antialias: true, lodCars: 100, lodPeds: 50 },
+  ultra: { label: 'Ultra', pixelRatio: 2, shadows: true, shadowSize: 4096, antialias: true, lodCars: 150, lodPeds: 70 },
 };
+
+const BENCH_SECONDS = 30;
+const BENCH_KEY = 'cta.bench.v1';
+// The benchmark flies along these roads at night: downtown, midtown, the park and the seafront.
+const BENCH_PATH = [[-240, -80], [0, -80], [0, 80], [80, 80], [80, 240], [-80, 240], [-80, 320], [240, 320]];
 
 const VEHICLE_STEP = 1 / 120;
 const AUTOSAVE_SECONDS = 20;
@@ -56,6 +66,8 @@ class Game {
     this.nav = null; // what the GPS is currently guiding to
     this.navT = 0;
     this._pp = new THREE.Vector3();
+    this.perf = new PerfMonitor();
+    this.basePixelRatio = 1;
     this.clock = 9; // hours
     this.audio = new Audio();
     this.crashSoundT = 0;
@@ -132,13 +144,42 @@ class Game {
 
     this.ui.setLoading(0.97, 'Warming up shaders');
     await new Promise((res) => requestAnimationFrame(res));
-    this.renderer.compile(this.scene, this.camera);
+    this.warmUpShaders();
 
+    this.showBenchLast();
     this.ui.setLoading(1, 'Ready');
     window.__ctaReady = true;
     this.toMenu();
     this.last = performance.now();
     requestAnimationFrame((t) => this.frame(t));
+  }
+
+  // Compile every material once while loading, including things that only appear
+  // later (night lamp pools, headlights, markers, far-away models), so nothing
+  // stutters the first time it shows up.
+  warmUpShaders() {
+    const hidden = [];
+    this.scene.traverse((o) => {
+      if (!o.visible) {
+        hidden.push(o);
+        o.visible = true;
+      }
+    });
+    const car = this.vehicles.list[0];
+    const head = car && car.model.head.material;
+    setVehicleNight(1);
+    if (car) car.driver = this.player;
+    if (car) car.syncModel(0.016);
+    this.world.setNight(1);
+    this.renderer.compile(this.scene, this.camera);
+    if (car) {
+      car.driver = null;
+      car.model.head.material = head;
+    }
+    setVehicleNight(0);
+    this.world.setNight(0);
+    for (const o of hidden) o.visible = false;
+    this.shownHours = null;
   }
 
   resize() {
@@ -152,7 +193,11 @@ class Game {
 
   applySettings(s) {
     const q = QUALITY[s.quality] || QUALITY.medium;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q.pixelRatio));
+    this.basePixelRatio = Math.min(window.devicePixelRatio || 1, q.pixelRatio);
+    if (!s.dynamicRes) this.perf.scale = 1;
+    this.setResolution(this.perf.scale);
+    this.vehicles.lodDistance = q.lodCars;
+    this.peds.lodDistance = q.lodPeds;
     if (this.renderer.shadowMap.enabled !== q.shadows) {
       this.renderer.shadowMap.enabled = q.shadows;
       this.scene.traverse((o) => {
@@ -170,8 +215,13 @@ class Game {
     this.traffic.setDensity(s.traffic);
     this.peds.setDensity(s.traffic);
     this.audio.setVolume(s.volume);
-    this.effects.setViewport(this.renderer.domElement.height, s.fov);
     saveSettings(s);
+  }
+
+  // Render resolution = the preset's pixel ratio x the dynamic resolution scale.
+  setResolution(scale) {
+    this.renderer.setPixelRatio(this.basePixelRatio * scale);
+    if (this.effects) this.effects.setViewport(this.renderer.domElement.height, this.settings.fov);
   }
 
   wireUi() {
@@ -210,6 +260,7 @@ class Game {
       if (data) ui.renderShop(data, this.cash);
     });
     ui.on('closeShop', () => this.resume());
+    ui.on('benchmark', () => this.startBenchmark());
     ui.on('abandon', () => {
       this.missions.abandon();
       this.resume();
@@ -223,7 +274,8 @@ class Game {
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Escape') {
         e.preventDefault();
-        if (this.state === 'playing') this.pause();
+        if (this.state === 'benchmark') this.endBenchmark(true);
+        else if (this.state === 'playing') this.pause();
         else if (this.state === 'map') this.closeMap();
         else if (this.state === 'paused') {
           // the Esc that released the mouse already paused the game: ignore its echo
@@ -233,6 +285,11 @@ class Game {
         } else if (this.state === 'menu' && ui.current !== 'menu') ui.show('menu');
       } else if (e.code === 'KeyM') {
         if (this.state === 'map') this.closeMap();
+      } else if (e.code === 'F3') {
+        e.preventDefault();
+        this.settings.showFps = !this.settings.showFps;
+        this.ui.syncSettings();
+        this.applySettings(this.settings);
       }
     });
   }
@@ -354,7 +411,7 @@ class Game {
   }
 
   saveNow() {
-    if (this.state === 'menu' || this.state === 'loading') return;
+    if (this.state === 'menu' || this.state === 'loading' || this.state === 'benchmark') return;
     const v = this.player.vehicle;
     saveProgress({
       cash: this.cash,
@@ -488,13 +545,21 @@ class Game {
 
   frame(now) {
     requestAnimationFrame((t) => this.frame(t));
-    const dt = Math.min(0.1, (now - this.last) / 1000);
+    const real = Math.max(0, (now - this.last) / 1000);
+    const dt = Math.min(0.1, real);
     this.last = now;
     this.time += dt;
-    this.fps = this.fps * 0.95 + (dt > 0 ? 1 / dt : 60) * 0.05;
+    this.perf.frame(real);
+    if (this.bench && this.state === 'benchmark') this.bench.times.push(real);
+    const active = this.state === 'playing' || this.state === 'benchmark';
+    if (active && this.settings.dynamicRes) {
+      const scale = this.perf.adapt(real);
+      if (scale !== null) this.setResolution(scale);
+    }
 
     if (this.state === 'playing' || this.state === 'blackout') this.updatePlaying(dt, now);
     else if (this.state === 'menu') this.updateMenu(dt);
+    else if (this.state === 'benchmark') this.updateBenchmark(dt);
     // paused / map: the world is frozen but keeps rendering behind the menus
 
     this.updateTimeOfDay(dt);
@@ -502,9 +567,140 @@ class Game {
     this.effects.update(this.state === 'playing' || this.state === 'menu' || this.state === 'blackout' ? dt : 0);
     const focus = this.state === 'menu' ? MENU_FOCUS : this.player.vehicle ? this.player.vehicle.model.root.position : this.player.pos;
     this.env.update(dt, this.time, this.camera, focus);
+    this.vehicles.updateLod(this.camera.position, this.player.vehicle);
     this.renderer.render(this.scene, this.camera);
-    if (this.settings.showFps && this.state !== 'menu') this.ui.setFps(true, this.fps);
+    if (this.bench && this.state === 'benchmark') {
+      this.bench.calls += this.renderer.info.render.calls;
+      this.bench.frames++;
+    }
+    if (this.settings.showFps && this.state !== 'menu') this.ui.setFps(true, this.perfText());
     this.input.endFrame();
+  }
+
+  perfText() {
+    this.perfT = (this.perfT || 0) + 1;
+    if (this.perfT % 10 !== 1 && this.lastPerfText) return this.lastPerfText;
+    const avg = this.perf.average(60);
+    const info = this.renderer.info.render;
+    const res = Math.round(this.perf.scale * 100);
+    this.lastPerfText = `${Math.round(1 / avg)} fps · ${(avg * 1000).toFixed(1)} ms (worst ${(this.perf.worst(60) * 1000).toFixed(0)}) · ${info.calls} draws · ${(info.triangles / 1e6).toFixed(2)}M tris · res ${res}%`;
+    return this.lastPerfText;
+  }
+
+  // ---------------------------------------------------------------- benchmark
+
+  // A 30-second flight along a fixed route at night with traffic and pedestrians,
+  // timing every frame. Runs from the main menu so it never touches saved progress.
+  startBenchmark() {
+    const pts = BENCH_PATH;
+    let len = 0;
+    for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    this.bench = { t: 0, len, times: [], calls: 0, frames: 0 };
+    this.state = 'benchmark';
+    this.ui.hideScreens();
+    this.ui.showHud(false);
+    this.audio.setActive(false);
+    this.police.reset();
+    this.traffic.clear();
+    this.peds.clear();
+    this.player.setVisible(false);
+    this.benchPoint(0, this.player.pos);
+    // fill the streets before timing starts
+    for (let i = 0; i < 80 && this.traffic.cars.length < this.traffic.target; i++) this.traffic.spawnOne(this.player.pos.x, this.player.pos.z);
+    for (let i = 0; i < 80 && this.peds.list.length < this.peds.target; i++) this.peds.spawnOne(this.player.pos.x, this.player.pos.z);
+    this.perf.reset();
+    this.ui.setBenchHud('');
+  }
+
+  // Point `s` metres along the benchmark route.
+  benchPoint(s, out) {
+    const pts = BENCH_PATH;
+    for (let i = 1; i < pts.length; i++) {
+      const [ax, az] = pts[i - 1];
+      const [bx, bz] = pts[i];
+      const d = Math.hypot(bx - ax, bz - az);
+      if (s <= d || i === pts.length - 1) {
+        const k = Math.min(1, s / d);
+        return out.set(ax + (bx - ax) * k, 0.15, az + (bz - az) * k);
+      }
+      s -= d;
+    }
+    return out;
+  }
+
+  updateBenchmark(dt) {
+    const b = this.bench;
+    b.t += dt;
+    const s = (b.t / BENCH_SECONDS) * b.len;
+    const p = this.benchPoint(s, this.player.pos);
+    const ahead = this.benchPoint(s + 35, new THREE.Vector3());
+    // smooth the camera so corners turn rather than snap
+    const target = new THREE.Vector3(p.x, 9, p.z);
+    if (b.t < 0.05) this.camera.position.copy(target);
+    else this.camera.position.lerp(target, Math.min(1, dt * 4));
+    b.look = b.look ? b.look.lerp(ahead, Math.min(1, dt * 2.5)) : ahead.clone();
+    this.camera.lookAt(b.look.x, 3, b.look.z);
+    this.camera.fov = this.settings.fov;
+    this.camera.updateProjectionMatrix();
+    const steps = Math.max(1, Math.ceil(dt / VEHICLE_STEP / 2));
+    for (let i = 0; i < steps; i++) this.vehicles.update(dt / steps, null, null);
+    this.vehicles.hits.length = 0;
+    this.traffic.update(dt);
+    this.peds.update(dt);
+    for (const v of this.vehicles.list) if (!v.asleep && v.speed > 2) this.effects.tyreSmoke(v, dt);
+    const left = Math.max(0, BENCH_SECONDS - b.t);
+    this.ui.setBenchHud(`${Math.ceil(left)} s · ${Math.round(1 / this.perf.average(30))} fps`);
+    if (b.t >= BENCH_SECONDS) this.endBenchmark(false);
+  }
+
+  endBenchmark(aborted) {
+    const b = this.bench;
+    this.bench = null;
+    this.ui.setBenchHud(null);
+    this.traffic.clear();
+    this.peds.clear();
+    this.toMenu();
+    if (aborted) return;
+    // the first second includes warm-up hitches; leave it out
+    let skip = 0;
+    let acc = 0;
+    while (skip < b.times.length && acc < 1) acc += b.times[skip++];
+    const st = frameStats(b.times.slice(skip));
+    const q = QUALITY[this.settings.quality] || QUALITY.medium;
+    const w = this.renderer.domElement.width;
+    const h = this.renderer.domElement.height;
+    const result = {
+      fps: Math.round(st.fps), low: Math.round(st.low), worst: Math.round(st.worstMs),
+      calls: Math.round(b.calls / Math.max(1, b.frames)), preset: q.label, res: `${w} x ${h}`,
+      scale: Math.round(this.perf.scale * 100), traffic: this.settings.traffic, date: new Date().toISOString().slice(0, 10),
+    };
+    try {
+      localStorage.setItem(BENCH_KEY, JSON.stringify(result));
+    } catch {
+      // storage blocked: the result is still shown
+    }
+    this.showBenchLast();
+    const verdict = result.fps >= 58 ? 'Smooth at 60 fps on this preset.' : result.fps >= 40
+      ? 'Playable. Dynamic resolution or a lower preset will smooth it out.'
+      : 'Struggling. Try a lower quality preset or lighter traffic.';
+    this.ui.showBenchResults([
+      ['Average', `${result.fps} fps`, true],
+      ['1% low', `${result.low} fps`],
+      ['Slowest frame', `${result.worst} ms`],
+      ['Draw calls', `${result.calls} per frame`],
+      ['Preset', `${result.preset}, traffic ${result.traffic}`],
+      ['Resolution', `${result.res} (${result.scale}% after dynamic resolution)`],
+    ], verdict);
+  }
+
+  showBenchLast() {
+    let r = null;
+    try {
+      r = JSON.parse(localStorage.getItem(BENCH_KEY));
+    } catch {
+      r = null;
+    }
+    this.ui.setBenchLast(r ? `Last benchmark (${r.date}): ${r.fps} fps average, ${r.low} fps 1% low on ${r.preset}.` : 'Run the benchmark to see how this computer copes with each preset.');
   }
 
   updateMenu(dt) {
@@ -720,7 +916,7 @@ class Game {
   updateTimeOfDay(dt) {
     if (this.state === 'playing') this.clock = (this.clock + dt / 60) % 24;
     const mode = this.settings.timeMode;
-    const hours = this.state === 'menu' ? 17.6 : mode === 'day' ? 13 : mode === 'night' ? 22.5 : this.clock;
+    const hours = this.state === 'menu' ? 17.6 : this.state === 'benchmark' ? 22.5 : mode === 'day' ? 13 : mode === 'night' ? 22.5 : this.clock;
     if (hours === this.shownHours) return;
     this.shownHours = hours;
     this.env.setTime(hours);

@@ -6,7 +6,7 @@ const $ = (id) => document.getElementById(id);
 
 export class UI {
   constructor() {
-    this.screens = ['loading', 'menu', 'pause', 'settings', 'controls', 'bigmap', 'missions', 'shop'];
+    this.screens = ['loading', 'menu', 'pause', 'settings', 'controls', 'bigmap', 'missions', 'shop', 'bench'];
     this.current = 'loading';
     this.returnTo = 'menu';
     this.handlers = {};
@@ -41,6 +41,9 @@ export class UI {
     click('btn-missions-back', () => this.show('pause'));
     click('btn-abandon', () => this.emit('abandon'));
     click('btn-shop-close', () => this.emit('closeShop'));
+    click('btn-bench', () => this.emit('benchmark'));
+    click('btn-bench-again', () => this.emit('benchmark'));
+    click('btn-bench-back', () => this.show('menu'));
     click('btn-settings-back', () => this.show(this.returnTo));
     click('btn-controls-back', () => this.show(this.returnTo));
     click('btn-reset', () => {
@@ -71,7 +74,34 @@ export class UI {
 
   openSettings(from) {
     this.returnTo = from;
+    // the benchmark needs the city to itself, so it runs from the main menu only
+    $('btn-bench').hidden = from !== 'menu';
+    $('bench-last').hidden = from !== 'menu';
     this.show('settings');
+  }
+
+  setBenchLast(text) {
+    $('bench-last').textContent = text || '';
+  }
+
+  showBenchResults(rows, note) {
+    const dl = $('bench-results');
+    dl.innerHTML = '';
+    for (const [k, v, big] of rows) {
+      const dt = document.createElement('dt');
+      dt.textContent = k;
+      const dd = document.createElement('dd');
+      dd.textContent = v;
+      if (big) dd.className = 'big';
+      dl.append(dt, dd);
+    }
+    $('bench-note').textContent = note;
+    this.show('bench');
+  }
+
+  setBenchHud(text) {
+    $('bench-hud').hidden = text === null;
+    if (text !== null) $('bench-hud-text').textContent = text;
   }
 
   openControls(from) {
@@ -102,7 +132,9 @@ export class UI {
     const time = $('set-time');
     const traffic = $('set-traffic');
     const vol = $('set-volume');
+    const dyn = $('set-dynres');
     const sync = () => {
+      dyn.checked = settings.dynamicRes;
       time.value = settings.timeMode;
       traffic.value = settings.traffic;
       vol.value = settings.volume;
@@ -129,10 +161,12 @@ export class UI {
       settings.timeMode = time.value;
       settings.traffic = traffic.value;
       settings.volume = Number(vol.value);
+      settings.dynamicRes = dyn.checked;
       sync();
       onChange(settings);
     };
-    for (const el of [q, draw, fov, sens, inv, auto, fps, time, traffic, vol]) el.addEventListener('input', read);
+    for (const el of [q, draw, fov, sens, inv, auto, fps, time, traffic, vol, dyn]) el.addEventListener('input', read);
+    this.syncSettings = sync;
     sync();
   }
 
@@ -182,9 +216,9 @@ export class UI {
     this.vehName.textContent = name;
   }
 
-  setFps(show, fps) {
+  setFps(show, text) {
     this.fpsEl.hidden = !show;
-    if (show) this.fpsEl.textContent = `${Math.round(fps)} fps`;
+    if (show && this.fpsEl.textContent !== text) this.fpsEl.textContent = text;
   }
 
   setStreet(name) {

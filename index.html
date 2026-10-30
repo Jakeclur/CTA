@@ -96,10 +96,11 @@
             <option value="low">Low: no shadows, best for older laptops</option>
             <option value="medium">Medium</option>
             <option value="high">High: sharper shadows and image</option>
+            <option value="ultra">Ultra: for gaming PCs</option>
           </select>
 
           <label for="set-draw">Draw distance <output id="out-draw"></output></label>
-          <input id="set-draw" type="range" min="400" max="1300" step="50" />
+          <input id="set-draw" type="range" min="400" max="1600" step="50" />
 
           <label for="set-fov">Field of view <output id="out-fov"></output></label>
           <input id="set-fov" type="range" min="55" max="95" step="1" />
@@ -131,16 +132,35 @@
           <label for="set-autocenter">Camera re-centres behind car</label>
           <input id="set-autocenter" type="checkbox" class="toggle" />
 
-          <label for="set-fps">Show FPS counter</label>
+          <label for="set-dynres">Dynamic resolution (keeps the frame rate smooth)</label>
+          <input id="set-dynres" type="checkbox" class="toggle" />
+
+          <label for="set-fps">Show performance stats (F3)</label>
           <input id="set-fps" type="checkbox" class="toggle" />
         </form>
         <p class="hint-text">Anti-aliasing changes with quality after a page reload.</p>
+        <p id="bench-last" class="hint-text"></p>
         <div class="row">
           <button id="btn-reset" class="btn ghost danger">Reset progress</button>
+          <button id="btn-bench" class="btn">Run benchmark</button>
           <button id="btn-settings-back" class="btn primary">Back</button>
         </div>
       </div>
     </section>
+
+    <!-- Benchmark results -->
+    <section id="bench" class="screen dim">
+      <div class="panel narrow">
+        <h2>Benchmark</h2>
+        <dl id="bench-results" class="bench-results"></dl>
+        <p id="bench-note" class="hint-text"></p>
+        <div class="row">
+          <button id="btn-bench-again" class="btn">Run again</button>
+          <button id="btn-bench-back" class="btn primary">Back</button>
+        </div>
+      </div>
+    </section>
+    <div id="bench-hud" hidden><b>BENCHMARK</b> <span id="bench-hud-text"></span> · Esc to stop</div>
 
     <!-- Controls -->
     <section id="controls" class="screen dim">
@@ -188,7 +208,7 @@
 
     <!-- In-game HUD -->
     <div id="hud" hidden>
-      <div id="fps" hidden>-- fps</div>
+      <div id="fps" hidden></div>
       <div id="notifications"></div>
       <div class="hud-topright">
         <div id="cash">$0</div>

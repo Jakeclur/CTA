@@ -227,7 +227,7 @@ export function buildEnvironment(scene, renderer) {
           sun.shadow.map = null;
         }
       }
-      shadowRange = shadowSize >= 2048 ? 110 : 80;
+      shadowRange = shadowSize >= 4096 ? 150 : shadowSize >= 2048 ? 110 : 80;
       sc.left = -shadowRange;
       sc.right = shadowRange;
       sc.top = shadowRange;
