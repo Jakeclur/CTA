@@ -84,7 +84,8 @@ After a failed mission, press `R` within 15 seconds to retry from the last check
 ### Graphics (Phase 2)
 
 * **Cars** are lofted from rounded cross-sections that follow each model's side profile, with real wheel arches, a separate cabin with glass and painted pillars, clear-coat metallic paint, five-spoke alloy wheels with tyres and brake discs, lamp lenses, grilles, mirrors, door handles and exhausts. Headlights throw soft light beams at night, and brake and police lights glow.
-* **People** are built from smooth tapered limbs with shoulders, hands, faces (eyes, brows, nose, ears, lips) and several hair styles, in male and female builds. Clothing varies between jackets over shirts, T-shirts with bare arms, trousers and shorts.
+* **People** are built from smooth tapered limbs with shoulders, hands, faces and several hair styles, in male and female builds. Clothing varies between jackets over shirts, T-shirts with bare arms, trousers and shorts.
+* **The player** (and mission characters) use a higher-detail model. The torso is lofted from cross-sections, with a chest, a shoulder slope and a flat back. The head is sculpted, with a brow, eye sockets, cheekbones, a nose with nostrils, lips and a chin. The eyes have irises, pupils and eyelids, the eyebrows are painted in, and some stubble is shaded on. Hair is a shell with a hairline and strands. Each hand has four jointed fingers and a thumb. The jacket has a zip, cuffs, a hem and seams, the jeans have seams and worn fronts, and the trainers have soles, laces and a heel tab. The feet roll heel to toe when walking, the hips sway and twist against the shoulders, and when standing still the player shifts their weight and looks around.
 * **Buildings** have relief maps for recessed windows, frames, sills, louvred shutters, brickwork and weatherboards, real plinths, cornices and floor ledges, and vertical fins on glass towers. Walls darken with grime near the street and pick up faint rain streaks. At night each lit room shows furniture, blinds or a television's glow.
 * **Shop fronts** were rebuilt: stone piers, aluminium-framed display windows with fashion racks, cafe counters, grocery shelves or electronics inside, glass doors, and only the fascia in the shop's colour. Interiors light up after dark.
 * **Streets**: asphalt with aggregate grain, cracks, patch repairs and oil stains (with a normal map), worn lane paint, concrete gutters, manhole covers, storm drains, and pavement slabs with joints, chips and stains.
@@ -158,7 +159,7 @@ src/
   geometry.js         GeoBuilder: merges thousands of boxes and quads into a few draw calls
   collision.js        Static collision boxes in a spatial grid; circle push-out and ray casts
   player.js           Character rig (shared with pedestrians and police), animation, on-foot movement
-  characterModel.js   Smooth character body parts, faces, hair and clothing
+  characterModel.js   Character bodies: a detailed player model (sculpted head, hands, clothing) and a lighter crowd model
   camera.js           Third-person camera with mouse orbit, re-centring and wall avoidance
   vehicles.js         Vehicle types, car model assembly, lights, driving physics and car collisions
   carModel.js         Lofted car bodies, cabins, wheels and door panels
