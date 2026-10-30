@@ -69,6 +69,9 @@ export const VEHICLE_TYPES = {
 // ------------------------------------------------------------------ models
 
 const shared = {};
+const LOD_CAPACITY = 96;
+const _lodM = new THREE.Matrix4();
+const _lodC = new THREE.Color();
 let nightLevel = 0;
 // 0 = day, 1 = night: cars with someone driving switch their lights on after dark
 export function setVehicleNight(k) {
@@ -303,6 +306,15 @@ function typeGeometries(t) {
     doorLen,
     wheel,
   };
+  // far-away version: everything in one geometry, drawn instanced (one draw call per type)
+  const keep = (geo, tr = {}) => part(geo, tr, null);
+  const lodParts = [part(G.body), part(G.roof), part(G.glass, {}, '#1b2630'), keep(out.trim), keep(out.head), keep(out.tail)];
+  lodParts.push(part(doorPaint, { x: -(t.W / 2 + 0.015), z: doorFront }));
+  for (const [sx, sz] of [[-1, 1], [1, 1], [-1, -1], [1, -1]]) {
+    lodParts.push(keep(wheel, { x: sx * (t.track / 2), y: t.wheelR, z: sz * (t.wheelBase / 2) }));
+  }
+  if (out.red) lodParts.push(part(out.red, {}, '#ff2020'), part(out.blue, {}, '#2050ff'));
+  out.lod = mergeParts(lodParts);
   modelCache.set(t, out);
   return out;
 }
@@ -568,6 +580,19 @@ export class VehicleManager {
   constructor(scene, world) {
     this.scene = scene;
     this.world = world;
+    this.lodMeshes = new Map(); // type -> InstancedMesh of far-away cars
+    this.lodDistance = 70;
+    this.view = new THREE.Vector3(0, 1e6, 0);
+    this.lodMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.4, envMapIntensity: 1.1 });
+    for (const type of Object.keys(VEHICLE_TYPES)) {
+      const mesh = new THREE.InstancedMesh(typeGeometries(VEHICLE_TYPES[type]).lod, this.lodMat, LOD_CAPACITY);
+      mesh.count = 0;
+      mesh.frustumCulled = false; // instances spread over the whole city
+      mesh.receiveShadow = true;
+      mesh.setColorAt(0, new THREE.Color('#ffffff'));
+      scene.add(mesh);
+      this.lodMeshes.set(type, mesh);
+    }
     this.list = [];
     this.rng = makeRng(77);
     this.lastImpact = 0;
@@ -614,6 +639,35 @@ export class VehicleManager {
     for (const v of this.list) v.syncModel(dt);
     this.lastImpact = impact;
     return impact;
+  }
+
+  // Cars far from the camera are drawn as one instanced mesh per type instead of
+  // a dozen meshes each. Called once per frame with the camera position.
+  updateLod(camPos, driven) {
+    for (const mesh of this.lodMeshes.values()) mesh.count = 0;
+    const far2 = this.lodDistance * this.lodDistance;
+    const near2 = (this.lodDistance - 6) ** 2;
+    for (const v of this.list) {
+      const dx = v.x - camPos.x;
+      const dz = v.z - camPos.z;
+      const d2 = dx * dx + dz * dz;
+      // a little hysteresis so cars at the boundary do not flicker
+      if (v.lod ? d2 < near2 : d2 < far2) v.lod = false;
+      else v.lod = true;
+      if (v === driven || v.doorOpen > 0.01) v.lod = false;
+      const mesh = this.lodMeshes.get(v.type);
+      if (v.lod && mesh.count >= LOD_CAPACITY) v.lod = false;
+      v.model.root.visible = !v.lod;
+      if (!v.lod) continue;
+      _lodM.makeRotationY(v.heading).setPosition(v.x, v.y, v.z);
+      mesh.setMatrixAt(mesh.count, _lodM);
+      mesh.setColorAt(mesh.count, _lodC.set(v.color));
+      mesh.count++;
+    }
+    for (const mesh of this.lodMeshes.values()) {
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    }
   }
 
   collidePairs(driven) {

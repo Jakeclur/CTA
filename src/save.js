@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS = {
   timeMode: 'cycle', // cycle | day | night
   traffic: 'medium', // off | low | medium | high
   volume: 0.7,
+  dynamicRes: true,
 };
 
 export const DEFAULT_PROGRESS = {

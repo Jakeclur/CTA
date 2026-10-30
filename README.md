@@ -22,7 +22,7 @@ All four planned stages are built: the playable city (Stage 1), missions and pol
 | | | `C` | Snap camera behind the car |
 | | | `F` | Store the car (in the garage bay) |
 
-`M` opens the city map (click to set a waypoint, right-click to clear it) and `Esc` pauses. The pause menu has the **Missions** list. Click the game window to capture the mouse. If your browser blocks mouse capture, you can still look around by holding the mouse button and dragging.
+`M` opens the city map (click to set a waypoint, right-click to clear it), `F3` shows performance stats and `Esc` pauses. The pause menu has the **Missions** list. Click the game window to capture the mouse. If your browser blocks mouse capture, you can still look around by holding the mouse button and dragging.
 
 ## Features
 
@@ -64,8 +64,17 @@ All four planned stages are built: the playable city (Stage 1), missions and pol
 ### Menus, settings and saving
 
 * A loading screen, a main menu with the city flying past behind it at sunset, and pause, missions, map, settings and controls screens.
-* **Settings:** graphics quality (low, medium or high), draw distance, field of view, mouse sensitivity, invert Y, camera auto-centre, FPS counter, time of day (cycle, always day or always night), traffic and pedestrian density (off, light, normal, busy) and volume.
+* **Settings:** graphics quality (low, medium, high or ultra), dynamic resolution, draw distance, field of view, mouse sensitivity, invert Y, camera auto-centre, performance stats, time of day (cycle, always day or always night), traffic and pedestrian density (off, light, normal, busy) and volume.
 * **Saving:** settings, cash, health, position, the time of day, completed missions and your garage are saved in the browser's `localStorage` every 20 seconds, when you pause, when you finish a mission or buy something, and when you quit. **Continue** on the main menu picks up where you left off.
+
+### Performance
+
+* **Quality presets:** Low and Medium are tuned for laptops with built-in graphics. High and Ultra raise the resolution, shadow detail, shadow range and the distance at which cars and people keep full detail, for gaming PCs.
+* **Dynamic resolution** (on by default): when frames run slower than 60 fps the game lowers its render resolution, down to 60% of the preset, and raises it again once there is headroom. Turn it off in Settings to keep a fixed resolution.
+* **Performance stats:** press `F3` (or tick the box in Settings) to show frames per second, frame time with the worst recent frame, draw calls, triangles and the current resolution.
+* **Benchmark:** Settings on the main menu has a **Run benchmark** button. It flies a fixed 30-second route across the city at night with traffic and pedestrians, then shows average fps, the 1% low, the worst frame and draw calls. The last result is kept. It does not touch your saved game. Press `Esc` to stop it early.
+* **Level of detail:** cars more than about 70 m away (on Medium) and pedestrians more than about 35 m away are drawn as simplified shapes in a few batched draw calls instead of full models. This roughly halves the draw calls in busy streets.
+* Shaders for night lights, headlights and every vehicle are compiled while the game loads, so the first sunset and the first new car do not stutter.
 
 ## Known limitations
 
@@ -76,6 +85,7 @@ All four planned stages are built: the playable city (Stage 1), missions and pol
 * Traffic, pedestrians and parked cars are not saved; the city refills around you when you load. Owned cars return to your garage when you reload.
 * Pedestrians only cross the road at the corners of blocks, and a few can get briefly stuck against street furniture before they find their way around it.
 * Low kerbs and steps are smoothed rather than collided with, and you cannot climb onto objects.
+* Frame rates have not been measured on real hardware yet: automated tests run in a software renderer at a few frames per second. Run the benchmark on your own machine to see how each preset performs.
 * Anti-aliasing only changes after a page reload, because WebGL sets it when the page starts.
 * Sound starts after you click **Play** or **Continue** because browsers block audio until you interact with the page.
 * Built and tested for desktop browsers with a keyboard and mouse. Touch controls are not supported.
@@ -133,6 +143,7 @@ src/
   missionData.js      The missions themselves, as data
   shop.js             Car dealer, garage of owned cars, PetroSol stores
   audio.js            Synthesised sound effects and engine, siren and ambient loops
+  perf.js             Frame timing, dynamic resolution and benchmark statistics
   effects.js          Tyre smoke and crash dust particles
   interactables.js    Cash pickups and vending machines
   minimap.js          Rotating minimap with GPS route and full-screen map with waypoints
@@ -161,6 +172,6 @@ Add an entry to `VEHICLE_TYPES` in `src/vehicles.js` with its size, its shape (h
 
 ## Next steps
 
-The four planned stages are done. A good next prompt:
+The four planned stages are done, and work has started on the graphics and playability plan: Phase 1 (performance base) is built. Phases 2 to 5 cover the look (bloom, colour grading, better car models), driving feel (handling, damage, gamepad), a livelier world (rain, smarter traffic and police) and more things to do. An older suggestion for a next prompt:
 
 > Continue the CTA project in this repository (read the README first; all four stages are built). Add **Stage 5: polish and depth**. Give AI drivers right-of-way rules at intersections so they wait for oncoming traffic before turning across it, and let them use both lanes with lane changes around parked cars. Add a simple vehicle damage model (smoke and reduced top speed when a car is badly damaged, repairs at Solano Customs). Add two more missions using the existing step types, including one at night. Add touch controls for tablets. Keep every existing feature working, test for console errors, and update the README.
