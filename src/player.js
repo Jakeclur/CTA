@@ -49,7 +49,7 @@ export function buildCharacter(look = PLAYER_LOOK, lite = false) {
   const female = L.build === 'f';
   const makeArm = (side) => {
     const shoulder = new THREE.Group();
-    shoulder.position.set(side * (female ? 0.19 : 0.215), 0.5, 0);
+    shoulder.position.set(side * (lite ? (female ? 0.19 : 0.215) : female ? 0.162 : 0.178), lite ? 0.5 : 0.475, 0);
     torso.add(shoulder);
     seg(G.upperArm, shoulder);
     const elbow = new THREE.Group();
@@ -68,7 +68,11 @@ export function buildCharacter(look = PLAYER_LOOK, lite = false) {
     knee.position.y = -0.45;
     hip.add(knee);
     seg(G.shin, knee);
-    return { hip, knee };
+    const ankle = new THREE.Group();
+    ankle.position.y = -0.42;
+    knee.add(ankle);
+    seg(G.foot, ankle);
+    return { hip, knee, ankle };
   };
 
   // The character faces local +z; its left is +x.
@@ -121,24 +125,44 @@ export class Character {
     const breathe = Math.sin(this.time * 2.2);
     const set = (o, k, v) => (o.rotation[k] = damp(o.rotation[k], v, 18, dt));
 
-    // legs
-    set(r.legL.hip, 'x', -s * legAmp * m + this.airBlend * -0.7);
-    set(r.legR.hip, 'x', s * legAmp * m + this.airBlend * 0.25);
-    set(r.legL.knee, 'x', (Math.max(0, -c) * kneeAmp + 0.05) * m + this.airBlend * 1.1);
-    set(r.legR.knee, 'x', (Math.max(0, c) * kneeAmp + 0.05) * m + this.airBlend * 0.4);
-    // arms swing opposite the legs
-    set(r.armL.shoulder, 'x', s * armAmp * m + breathe * 0.03 * (1 - m) - this.airBlend * 0.5);
-    set(r.armR.shoulder, 'x', -s * armAmp * m - breathe * 0.03 * (1 - m) - this.airBlend * 0.5);
-    set(r.armL.shoulder, 'z', 0.1 + this.airBlend * 0.5);
-    set(r.armR.shoulder, 'z', -0.1 - this.airBlend * 0.5);
-    set(r.armL.elbow, 'x', -0.2 - this.runBlend * 1.1 * m);
-    set(r.armR.elbow, 'x', -0.2 - this.runBlend * 1.1 * m);
-    // body bob and lean
-    r.body.position.y = Math.abs(s) * (0.03 + this.runBlend * 0.05) * m;
+    const idle = 1 - m;
+    // standing: weight shifts slowly from foot to foot and the head looks about
+    const shift = Math.sin(this.time * 0.45 + this.phase) * idle * (1 - this.airBlend);
+    const lookAbout = Math.sin(this.time * 0.31 + this.phase * 2) * 0.35 + Math.sin(this.time * 0.83) * 0.1;
+
+    // legs (positive x swings a leg back); the swing leg lifts its knee
+    const hipL = -s * legAmp * m + this.airBlend * -0.7 + shift * 0.04;
+    const hipR = s * legAmp * m + this.airBlend * 0.25 - shift * 0.04;
+    const kneeL = (Math.max(0, -c) * kneeAmp + 0.05) * m + this.airBlend * 1.1 + Math.max(0, -shift) * 0.12;
+    const kneeR = (Math.max(0, c) * kneeAmp + 0.05) * m + this.airBlend * 0.4 + Math.max(0, shift) * 0.12;
+    set(r.legL.hip, 'x', hipL);
+    set(r.legR.hip, 'x', hipR);
+    set(r.legL.knee, 'x', kneeL);
+    set(r.legR.knee, 'x', kneeR);
+    // feet stay level with the ground, roll onto the toes as they push off and
+    // lift the toes as the heel comes down
+    const roll = (h, k) => -(h + k) + Math.max(0, h) * 0.9 * m - Math.max(0, -h) * 0.35 * m + this.airBlend * 0.35;
+    set(r.legL.ankle, 'x', roll(hipL, kneeL));
+    set(r.legR.ankle, 'x', roll(hipR, kneeR));
+    // arms swing opposite the legs, elbows bend more on the forward swing
+    set(r.armL.shoulder, 'x', s * armAmp * m + breathe * 0.03 * idle - this.airBlend * 0.5);
+    set(r.armR.shoulder, 'x', -s * armAmp * m - breathe * 0.03 * idle - this.airBlend * 0.5);
+    set(r.armL.shoulder, 'z', 0.08 + this.runBlend * 0.08 * m + this.airBlend * 0.5);
+    set(r.armR.shoulder, 'z', -0.08 - this.runBlend * 0.08 * m - this.airBlend * 0.5);
+    set(r.armL.elbow, 'x', -0.18 - Math.max(0, -s) * 0.35 * m - this.runBlend * 1.1 * m);
+    set(r.armR.elbow, 'x', -0.18 - Math.max(0, s) * 0.35 * m - this.runBlend * 1.1 * m);
+    // body: bobs twice per stride, hips sway and twist against the shoulders
+    r.body.position.y = (Math.abs(s) - 0.5) * (0.035 + this.runBlend * 0.05) * m;
+    r.body.position.x = shift * 0.025;
     set(r.hips, 'x', this.runBlend * 0.22 * m);
-    r.torso.scale.y = 1 + breathe * 0.008 * (1 - m);
-    set(r.torso, 'y', -s * 0.12 * m);
-    set(r.head, 'y', s * 0.1 * m);
+    set(r.hips, 'y', s * 0.09 * m);
+    set(r.hips, 'z', c * 0.05 * m * (1 - this.runBlend * 0.5) - shift * 0.035);
+    r.torso.scale.y = 1 + breathe * 0.008 * idle;
+    set(r.torso, 'y', -s * 0.2 * m);
+    set(r.torso, 'z', -c * 0.04 * m + shift * 0.03);
+    // the head stays steady and looks ahead while walking
+    set(r.head, 'y', s * 0.11 * m + lookAbout * idle);
+    set(r.head, 'z', c * 0.02 * m - shift * 0.02);
   }
 }
 
@@ -200,8 +224,15 @@ Character.prototype.pose = function pose(dt, kind, t) {
   set(r.armR.elbow, 'x', elbowR);
   set(r.head, 'x', headX);
   set(r.head, 'y', headY, 3);
+  // feet flat on the ground
+  set(r.legL.ankle, 'x', -(hipX + kneeX));
+  set(r.legR.ankle, 'x', -(hipX + kneeX));
   set(r.hips, 'x', 0);
+  set(r.hips, 'y', 0);
   set(r.torso, 'y', 0);
+  set(r.torso, 'z', 0);
+  set(r.head, 'z', 0);
+  r.body.position.x = damp(r.body.position.x, 0, 6, dt);
   r.body.position.y = damp(r.body.position.y, bodyY, 6, dt);
   r.torso.scale.y = 1 + Math.sin(t * 2.2 + this.phase) * 0.008;
   r.hips.rotation.z = kind === 'sit' ? 0 : sway * 0.3; // shifting weight
