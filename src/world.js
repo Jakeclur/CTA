@@ -62,7 +62,7 @@ export async function buildWorld(scene, onProgress) {
     props: {
       streetlights: [], trafficLights: [], trees: [], palms: [], benches: [], bins: [], hydrants: [],
       ac: [], tanks: [], antennas: [], helipads: [], billboards: [], pumps: [], umbrellas: [],
-      fountains: [], canopies: [], lifeguards: [], bollards: [],
+      fountains: [], canopies: [], lifeguards: [], bollards: [], manholes: [], drains: [],
     },
     map: { rects: [], pois: [] },
     nightMaterials: [],
@@ -88,6 +88,7 @@ export async function buildWorld(scene, onProgress) {
     wood: TX.makeWood(),
     roof: TX.makeRoof(),
     tiles: TX.makeRoofTiles(),
+    wornPaint: TX.makeWornPaint(),
   };
 
   onProgress(0.2, 'Laying out districts');
@@ -131,7 +132,7 @@ export async function buildWorld(scene, onProgress) {
     },
     // 0 = day, 1 = night: windows, shop fronts and street lamps glow
     setNight(k) {
-      for (const { m, max } of ctx.nightMaterials) m.emissiveIntensity = k * max;
+      for (const { m, max, min = 0 } of ctx.nightMaterials) m.emissiveIntensity = Math.max(min, k * max);
       props.setNight(k);
     },
   };
@@ -649,8 +650,8 @@ function buildRoads(ctx) {
       const s0 = ROAD_LINES[j] + ROAD_HALF;
       const s1 = ROAD_LINES[j + 1] - ROAD_HALF;
       for (const alongZ of [true, false]) {
-        const R = seg(alongZ, c, s0, s1, (x0, z0, x1, z1) => M.top(Math.min(x0, x1), Math.min(z0, z1), Math.max(x0, x1), Math.max(z0, z1), y, 1, white));
-        const RY = seg(alongZ, c, s0, s1, (x0, z0, x1, z1) => M.top(Math.min(x0, x1), Math.min(z0, z1), Math.max(x0, x1), Math.max(z0, z1), y, 1, yellow));
+        const R = seg(alongZ, c, s0, s1, (x0, z0, x1, z1) => M.top(Math.min(x0, x1), Math.min(z0, z1), Math.max(x0, x1), Math.max(z0, z1), y, 3, white));
+        const RY = seg(alongZ, c, s0, s1, (x0, z0, x1, z1) => M.top(Math.min(x0, x1), Math.min(z0, z1), Math.max(x0, x1), Math.max(z0, z1), y, 3, yellow));
         const cw0 = s0 + 0.6;
         const cw1 = s1 - 0.6;
         // double yellow centre line
@@ -664,6 +665,21 @@ function buildRoads(ctx) {
         // zebra crossings at both ends
         for (const [a, b] of [[s0 + 0.5, s0 + 3.5], [s1 - 3.5, s1 - 0.5]]) {
           for (let k = -7.5; k < 7.5; k += 1.2) R(k, a, k + 0.6, b);
+        }
+        // concrete gutters along both kerbs
+        const gutter = rgb('#8f8b83');
+        const RG = seg(alongZ, c, s0, s1, (x0, z0, x1, z1) => M.top(Math.min(x0, x1), Math.min(z0, z1), Math.max(x0, x1), Math.max(z0, z1), y - 0.005, 3, gutter));
+        RG(-ROAD_HALF, s0, -ROAD_HALF + 0.45, s1);
+        RG(ROAD_HALF - 0.45, s0, ROAD_HALF, s1);
+        // a manhole cover in the road and storm drains at the kerb
+        const roadPt = (a, s) => (alongZ ? { x: c + a, z: s } : { x: s, z: c + a });
+        if (rng.chance(0.75)) {
+          const p = roadPt(rng.pick([-1, 1]) * rng.range(1.2, 6.5), rng.range(s0 + 8, s1 - 8));
+          ctx.props.manholes.push({ ...p, rot: rng.range(0, Math.PI) });
+        }
+        for (const t of [0.15, 0.55, 0.9]) {
+          const side = rng.pick([-1, 1]);
+          ctx.props.drains.push({ ...roadPt(side * (ROAD_HALF - 0.25), s0 + (s1 - s0) * t), rot: alongZ ? Math.PI / 2 : 0 });
         }
         // stop lines (traffic drives on the left: +z traffic uses x > c, +x traffic uses z < c)
         const L = alongZ ? 1 : -1;
@@ -908,10 +924,17 @@ function buildGroundMeshes(ctx, tex, group) {
   const std = (map, opts = {}) => new THREE.MeshStandardMaterial({ map, vertexColors: true, roughness: 0.95, ...opts });
 
   // Base asphalt slab under the whole city
-  const baseAsphalt = tex.asphalt.clone();
-  baseAsphalt.repeat.set(84, 84);
-  baseAsphalt.needsUpdate = true;
-  const asphaltMat = new THREE.MeshStandardMaterial({ map: baseAsphalt, roughness: 0.9 });
+  const tiled = (t, n) => {
+    const c = t.clone();
+    c.repeat.set(n, n);
+    c.needsUpdate = true;
+    return c;
+  };
+  const A = tex.asphalt;
+  const asphaltMat = new THREE.MeshStandardMaterial({
+    map: tiled(A.map, 84), normalMap: tiled(A.normalMap, 84), roughnessMap: tiled(A.roughnessMap, 84),
+    normalScale: new THREE.Vector2(0.8, 0.8), roughness: 1,
+  });
   const S = HALF + ROAD_HALF + SIDEWALK;
   const asphalt = new THREE.Mesh(new THREE.PlaneGeometry(S * 2, S * 2), asphaltMat);
   asphalt.rotation.x = -Math.PI / 2;
@@ -952,17 +975,84 @@ function buildGroundMeshes(ctx, tex, group) {
 
   const B = ctx.builders;
   const meshes = [
-    B.paving.mesh(std(tex.paving)),
+    B.paving.mesh(std(tex.paving.map, { normalMap: tex.paving.normalMap, roughness: 0.88 })),
     B.grass.mesh(std(tex.grass, { roughness: 1 })),
-    B.concrete.mesh(std(tex.concrete)),
-    B.lot.mesh(std(tex.asphalt)),
+    B.concrete.mesh(std(tex.concrete.map, { normalMap: tex.concrete.normalMap })),
+    B.lot.mesh(std(tex.asphalt.map, { normalMap: tex.asphalt.normalMap, roughnessMap: tex.asphalt.roughnessMap, roughness: 1 })),
     B.wood.mesh(std(tex.wood, { roughness: 0.85 })),
-    B.path.mesh(std(tex.concrete, { color: '#e8dcc3', polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })),
-    B.markings.mesh(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })),
+    B.path.mesh(std(tex.concrete.map, { normalMap: tex.concrete.normalMap, color: '#e8dcc3', polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })),
+    B.markings.mesh(new THREE.MeshStandardMaterial({ map: tex.wornPaint, vertexColors: true, roughness: 0.75, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })),
     B.pool.mesh(new THREE.MeshStandardMaterial({ color: '#3fb8d8', roughness: 0.08, metalness: 0.2 })),
     B.trim.mesh(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 }), { castShadow: true }),
   ];
   for (const m of meshes) if (m) group.add(m);
+}
+
+// Real geometry on the walls: a plinth at street level, string courses at each
+// floor on brick and stucco, a cornice under the roof line, and vertical fins
+// on glass towers. Window recesses and sills come from the facade normal maps.
+function addFacadeRelief(trim, b, y0) {
+  if (b.h - y0 < 3) return;
+  const tint = rgb(b.tint, 0.9);
+  const { x0, z0, x1, z1 } = b;
+  const ring = (ya, yb, o, colour) => trim.box(x0 - o, ya, z0 - o, x1 + o, yb, z1 + o, colour, 2);
+  if (!b.storefront && b.style !== 'house') ring(y0, y0 + 0.75, 0.08, rgb(b.style === 'glass' ? '#5b6268' : b.tint, 0.62));
+  if (b.style === 'brick' || b.style === 'stucco') {
+    for (let y = y0 + 3.5; y < b.h - 2; y += b.style === 'brick' ? 3.5 : 7) ring(y - 0.1, y + 0.08, 0.07, rgb(b.style === 'brick' ? '#d8d0c4' : b.tint, 0.95));
+  }
+  if (b.roof === 'flat' && b.style !== 'glass') {
+    ring(b.h - 0.75, b.h - 0.45, 0.32, tint);
+    ring(b.h - 0.45, b.h - 0.12, 0.2, tint);
+  }
+  if (b.style === 'glass') {
+    const fin = rgb('#9aa3ab');
+    const fins = (len, put) => {
+      for (let d = 1.75; d < len - 0.5; d += 1.75) put(d);
+    };
+    fins(x1 - x0, (d) => {
+      trim.box(x0 + d - 0.05, y0, z0 - 0.14, x0 + d + 0.05, b.h, z0, fin, 4);
+      trim.box(x0 + d - 0.05, y0, z1, x0 + d + 0.05, b.h, z1 + 0.14, fin, 4);
+    });
+    fins(z1 - z0, (d) => {
+      trim.box(x0 - 0.14, y0, z0 + d - 0.05, x0, b.h, z0 + d + 0.05, fin, 4);
+      trim.box(x1, y0, z0 + d - 0.05, x1 + 0.14, b.h, z0 + d + 0.05, fin, 4);
+    });
+  }
+}
+
+// Weathering for walls: grime and splash marks near the ground, and faint rain
+// streaks running down from each window column, worked out from world position.
+function weathered(m, tintMask = null) {
+  if (tintMask) m.userData.tintMask = { value: tintMask };
+  m.onBeforeCompile = (sh) => {
+    if (tintMask) {
+      // the shop's colour only goes where the mask is white (the fascia)
+      sh.uniforms.tintMask = m.userData.tintMask;
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform sampler2D tintMask;')
+        .replace('#include <color_fragment>', '#if defined( USE_COLOR )\n  diffuseColor.rgb *= mix(vec3(1.0), vColor, texture2D(tintMask, vMapUv).g);\n#endif');
+    }
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWeatherPos;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWeatherPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying vec3 vWeatherPos;
+float wHash(float n) { return fract(sin(n) * 43758.5453); }`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+  {
+    vec3 wp = vWeatherPos;
+    float ground = 1.0 - smoothstep(0.2, 4.5, wp.y);
+    float along = wp.x + wp.z;
+    float col = floor(along / 1.75);
+    float streak = wHash(col * 17.13) * smoothstep(0.35, 0.0, abs(fract(along / 1.75) - 0.5) - 0.1);
+    float drip = streak * (0.5 + 0.5 * sin(wp.y * 0.21 + col)) * 0.09;
+    float blotch = wHash(floor(wp.y * 0.3) * 3.1 + col) * 0.05;
+    diffuseColor.rgb *= 1.0 - ground * 0.3 - drip - blotch;
+  }`);
+  };
+  m.customProgramCacheKey = () => (tintMask ? 'weathered-tinted' : 'weathered');
+  return m;
 }
 
 function buildBuildingMeshes(ctx, tex, group) {
@@ -990,6 +1080,7 @@ function buildBuildingMeshes(ctx, tex, group) {
       y0 += 4.5;
     }
     if (b.h > y0) walls[b.style].walls(b.x0, b.z0, b.x1, b.z1, y0, b.h, tile, tile, tint, b.storefront ? 3.5 : 0);
+    addFacadeRelief(trim, b, y0);
     if (b.roof === 'gable') {
       tiles.gable(b.x0, b.z0, b.x1, b.z1, b.h, 2.2, 0.5, rgb(b.roofTint));
       // fill the gable triangles with wall colour
@@ -1008,9 +1099,11 @@ function buildBuildingMeshes(ctx, tex, group) {
   }
 
   const facadeMat = (s) =>
-    new THREE.MeshStandardMaterial({
+    weathered(new THREE.MeshStandardMaterial({
       map: tex.facades[s].map,
       roughnessMap: tex.facades[s].roughnessMap,
+      normalMap: tex.facades[s].normalMap,
+      normalScale: new THREE.Vector2(1, 1),
       vertexColors: true,
       roughness: 1,
       metalness: s === 'glass' ? 0.35 : 0.08,
@@ -1018,18 +1111,18 @@ function buildBuildingMeshes(ctx, tex, group) {
       emissive: '#ffffff',
       emissiveMap: tex.facades[s].emissiveMap,
       emissiveIntensity: 0,
-    });
+    }));
   const add = (m) => m && group.add(m);
   for (const s of Object.keys(walls)) {
     const m = facadeMat(s);
-    ctx.nightMaterials.push({ m, max: 1.1 });
+    ctx.nightMaterials.push({ m, max: 0.85 });
     add(walls[s].mesh(m, { castShadow: true }));
   }
-  const storeMat = new THREE.MeshStandardMaterial({
-    map: tex.store.map, roughnessMap: tex.store.roughnessMap, vertexColors: true, metalness: 0.1,
-    emissive: '#ffffff', emissiveMap: tex.store.map, emissiveIntensity: 0,
-  });
-  ctx.nightMaterials.push({ m: storeMat, max: 0.35 });
+  const storeMat = weathered(new THREE.MeshStandardMaterial({
+    map: tex.store.map, roughnessMap: tex.store.roughnessMap, normalMap: tex.store.normalMap, vertexColors: true, metalness: 0.15,
+    emissive: '#ffffff', emissiveMap: tex.store.emissiveMap, emissiveIntensity: 0.06, envMapIntensity: 1.2,
+  }), tex.store.tintMask);
+  ctx.nightMaterials.push({ m: storeMat, max: 0.75, min: 0.06 });
   add(store.mesh(storeMat, { castShadow: true }));
   add(roof.mesh(new THREE.MeshStandardMaterial({ map: tex.roof, vertexColors: true, roughness: 1 })));
   add(tiles.mesh(new THREE.MeshStandardMaterial({ map: tex.tiles, vertexColors: true, roughness: 0.85, side: THREE.DoubleSide }), { castShadow: true }));

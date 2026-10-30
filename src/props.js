@@ -206,6 +206,20 @@ export function buildProps(ctx, group) {
   add(instanced(hydrant, plain, P.hydrants));
   for (const h of P.hydrants) C.addPost(h.x, h.z, 0.2, 0.8);
 
+  // ---------------- manhole covers and storm drain grates, flush with the road
+  const manhole = mergeParts([
+    part(Cyl(0.4, 0.4, 0.02, 24), { y: 0.022 }, '#3b3936'),
+    part(Cyl(0.34, 0.34, 0.024, 24), { y: 0.024 }, '#55514b'),
+    ...[-0.2, -0.1, 0, 0.1, 0.2].map((x) => part(Box(0.03, 0.01, 0.62 - Math.abs(x) * 1.4), { x, y: 0.037 }, '#2c2a27')),
+    part(Box(0.6, 0.01, 0.03), { y: 0.037 }, '#2c2a27'),
+  ]);
+  add(instanced(manhole, plain, P.manholes, { cast: false }));
+  const drain = mergeParts([
+    part(Box(0.95, 0.02, 0.42), { y: 0.02 }, '#1c1c1c'),
+    ...Array.from({ length: 9 }, (_, i) => part(Box(0.035, 0.012, 0.36), { x: -0.4 + i * 0.1, y: 0.034 }, '#4d4b47')),
+  ]);
+  add(instanced(drain, plain, P.drains, { cast: false }));
+
   // ---------------- beach umbrellas and lifeguard towers
   const umbrella = mergeParts([
     part(Cyl(0.03, 0.03, 2.4, 6), { y: 1.2 }, '#dddddd'),

@@ -11,7 +11,7 @@ function canvas(w, h) {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
-  return [c, c.getContext('2d')];
+  return [c, c.getContext('2d', { willReadFrequently: true })];
 }
 
 function toTexture(c, { srgb = true, repeat = true } = {}) {
@@ -53,20 +53,48 @@ function drawFacade(style, rng) {
   const [rc, r] = canvas(S, S);
   r.fillStyle = '#e0e0e0';
   r.fillRect(0, 0, S, S);
+  // relief: bright = stands out, dark = set back (window recesses, mortar joints)
+  const [hc, hg] = canvas(S, S);
+  hg.fillStyle = '#969696';
+  hg.fillRect(0, 0, S, S);
+  const raise = (x, y, w, h, v = 210) => {
+    hg.fillStyle = `rgb(${v},${v},${v})`;
+    hg.fillRect(x, y, w, h);
+  };
   // night lights: a quarter-size map of which windows glow after dark
-  const [ec, e] = canvas(S / 4, S / 4);
+  const [ec, e] = canvas(S / 2, S / 2);
   e.fillStyle = '#000';
-  e.fillRect(0, 0, S / 4, S / 4);
-  e.scale(0.25, 0.25);
+  e.fillRect(0, 0, S / 2, S / 2);
+  e.scale(0.5, 0.5);
   const WARM = ['#ffcf7a', '#ffe2a8', '#fff0cf', '#ffd08a', '#cfe2ff'];
   const lit = (x, y, w, h) => {
     // wide window bands are split into rooms that are lit separately
     const room = w > 120 ? 64 : w;
     for (let rx = x; rx < x + w - 1; rx += room) {
       if (rng() > 0.42) continue;
-      e.fillStyle = WARM[Math.floor(rng() * WARM.length)];
-      e.globalAlpha = 0.55 + rng() * 0.45;
-      e.fillRect(rx + 1, y + 1, Math.min(room, x + w - rx) - 2, h - 2);
+      // a lit room: brighter under the ceiling light, furniture in silhouette,
+      // sometimes half-closed blinds or the blue flicker of a television
+      const rw = Math.min(room, x + w - rx) - 2;
+      const tv = rng() < 0.12;
+      const base = tv ? '#7fa6e0' : WARM[Math.floor(rng() * WARM.length)];
+      e.globalAlpha = 0.5 + rng() * 0.5;
+      const grad = e.createLinearGradient(0, y, 0, y + h);
+      grad.addColorStop(0, base);
+      grad.addColorStop(1, 'rgba(60,40,20,1)');
+      e.fillStyle = grad;
+      e.fillRect(rx + 1, y + 1, rw, h - 2);
+      e.fillStyle = 'rgba(20,14,8,0.85)';
+      const pieces = 1 + Math.floor(rng() * 3);
+      for (let k = 0; k < pieces; k++) {
+        const fw = rw * (0.15 + rng() * 0.3);
+        const fh = h * (0.18 + rng() * 0.35);
+        e.fillRect(rx + 1 + rng() * (rw - fw), y + h - 1 - fh, fw, fh);
+      }
+      if (rng() < 0.3) {
+        e.fillStyle = 'rgba(0,0,0,0.5)';
+        const drop = h * (0.2 + rng() * 0.5);
+        for (let by = y + 1; by < y + drop; by += 5) e.fillRect(rx + 1, by, rw, 2);
+      }
     }
     e.globalAlpha = 1;
   };
@@ -89,6 +117,8 @@ function drawFacade(style, rng) {
     g.fill();
     r.fillStyle = '#2a2a2a';
     r.fillRect(x, y, w, h);
+    raise(x - 3, y - 3, w + 6, h + 6, 200); // frame
+    raise(x, y, w, h, 40); // recessed pane
   };
 
   const curtain = (x, y, w, h) => {
@@ -112,6 +142,7 @@ function drawFacade(style, rng) {
       }
       g.fillStyle = '#9aa3ab';
       g.fillRect(0, fy * cell + cell - 17, S, 14);
+      raise(0, fy * cell + cell - 17, S, 14, 170);
     }
   } else if (style === 'office') {
     g.fillStyle = '#dcd8d0';
@@ -121,9 +152,13 @@ function drawFacade(style, rng) {
       const y = fy * cell + 22;
       glass(0, y, S, 72, 0.5);
       g.fillStyle = '#6f757a';
-      for (let x = 0; x < S; x += 32) g.fillRect(x, y, 4, 72);
+      for (let x = 0; x < S; x += 32) {
+        g.fillRect(x, y, 4, 72);
+        raise(x, y, 4, 72, 235);
+      }
       g.fillStyle = '#bdb8ae';
       g.fillRect(0, y + 72, S, 6);
+      raise(0, y + 72, S, 6, 240);
     }
   } else if (style === 'brick') {
     g.fillStyle = '#c9bfb4';
@@ -135,11 +170,13 @@ function drawFacade(style, rng) {
       g.moveTo(0, y);
       g.lineTo(S, y);
       g.stroke();
+      raise(0, y, S, 1.5, 70);
       for (let x = (y / 8) % 2 ? 0 : 8; x < S; x += 16) {
         g.beginPath();
         g.moveTo(x, y);
         g.lineTo(x, y + 8);
         g.stroke();
+        raise(x, y, 1.5, 8, 70);
       }
     }
     noise(g, S, S, rng, 4000, 0.06);
@@ -149,11 +186,13 @@ function drawFacade(style, rng) {
         const y = fy * cell + 26;
         g.fillStyle = '#efeae2';
         g.fillRect(x - 6, y - 6, 72, 92);
+        raise(x - 6, y - 6, 72, 92, 185);
         glass(x, y, 60, 76);
         curtain(x, y, 60, 76);
         g.fillStyle = '#f4f0ea';
         g.fillRect(x + 28, y, 4, 76);
         g.fillRect(x - 8, y + 80, 76, 8);
+        raise(x - 8, y + 80, 76, 8, 250); // sill
       }
     }
   } else if (style === 'stucco') {
@@ -172,6 +211,7 @@ function drawFacade(style, rng) {
         g.fillStyle = shutter;
         g.fillRect(x - 16, y, 14, balcony ? 96 : 74);
         g.fillRect(x + 50, y, 14, balcony ? 96 : 74);
+        for (const sx of [x - 16, x + 50]) for (let k = 0; k < (balcony ? 96 : 74); k += 6) raise(sx, y + k, 14, 3, 190); // louvres
         if (balcony) {
           g.fillStyle = 'rgba(40,40,40,0.85)';
           g.fillRect(x - 22, y + 62, 92, 4);
@@ -180,6 +220,7 @@ function drawFacade(style, rng) {
         } else {
           g.fillStyle = '#e2dccf';
           g.fillRect(x - 6, y + 76, 60, 6);
+          raise(x - 6, y + 76, 60, 6, 245);
         }
       }
     }
@@ -192,6 +233,12 @@ function drawFacade(style, rng) {
       g.moveTo(0, y);
       g.lineTo(S, y);
       g.stroke();
+      // weatherboards: each board thicker at the bottom
+      const grad = hg.createLinearGradient(0, y, 0, y + 10);
+      grad.addColorStop(0, '#707070');
+      grad.addColorStop(1, '#c0c0c0');
+      hg.fillStyle = grad;
+      hg.fillRect(0, y, S, 10);
     }
     for (let fy = 0; fy < 4; fy++) {
       for (let bx = 0; bx < 4; bx++) {
@@ -212,106 +259,456 @@ function drawFacade(style, rng) {
   const map = toTexture(c);
   const roughnessMap = toTexture(rc, { srgb: false });
   const emissiveMap = toTexture(ec);
-  return { map, roughnessMap, emissiveMap };
+  const normalMap = heightToNormal(hc, 5);
+  return { map, roughnessMap, emissiveMap, normalMap };
 }
 
-// Shop fronts: 2 shops per 14m tile, one storey (4.5m) high.
+// Shop fronts: 2 shops per 14 m tile, one storey (4.5 m) high. Stone piers,
+// aluminium-framed display windows with lit interiors behind reflective glass,
+// glass doors and a fascia band. Only the fascia takes the shop's colour (the
+// mask texture says where); everything else keeps its real materials.
 export function makeStorefront() {
+  const W = 1024;
+  const H = 320;
   const rng = makeRng(7);
-  const [c, g] = canvas(512, 160);
-  const [rc, r] = canvas(512, 160);
-  g.fillStyle = '#e8e4dc';
-  g.fillRect(0, 0, 512, 160);
-  r.fillStyle = '#d0d0d0';
-  r.fillRect(0, 0, 512, 160);
+  const [c, g] = canvas(W, H);
+  const [rc, r] = canvas(W, H);
+  const [mc, m] = canvas(W, H);
+  const [ec, e] = canvas(W, H);
+  const [hc, hg] = canvas(W, H);
+  const fill = (ctx, style, x, y, w, h) => {
+    ctx.fillStyle = style;
+    ctx.fillRect(x, y, w, h);
+  };
+  fill(m, '#000', 0, 0, W, H);
+  fill(e, '#000', 0, 0, W, H);
+  fill(hg, '#808080', 0, 0, W, H);
+  fill(r, '#c8c8c8', 0, 0, W, H);
+  // stone base colour everywhere, then the parts on top
+  const stone = fbm(rng, 6, 4);
+  paint(g, W, H, (u, v) => {
+    const k = 196 + (stone(u, v) - 0.5) * 30 + (rng() - 0.5) * 14;
+    return [k, k - 4, k - 12];
+  });
+  const KINDS = ['fashion', 'cafe', 'grocery', 'tech'];
   for (let s = 0; s < 2; s++) {
-    const x0 = s * 256;
-    // sign band
-    g.fillStyle = '#f7f4ee';
-    g.fillRect(x0 + 8, 6, 240, 28);
-    // awning stripes
-    for (let i = 0; i < 12; i++) {
-      g.fillStyle = i % 2 ? 'rgba(255,255,255,0.9)' : 'rgba(170,170,170,0.9)';
-      g.fillRect(x0 + 8 + i * 20, 34, 20, 14);
+    const x0 = s * 512;
+    const kind = KINDS[Math.floor(rng() * KINDS.length)];
+    // fascia: tinted, with a darker shadow line under it
+    fill(g, '#e9e6e0', x0 + 30, 8, 452, 56);
+    fill(m, '#fff', x0 + 30, 8, 452, 56);
+    fill(g, 'rgba(0,0,0,0.35)', x0 + 30, 64, 452, 4);
+    fill(hg, '#c8c8c8', x0 + 30, 8, 452, 56);
+    fill(e, 'rgba(255,240,220,0.18)', x0 + 30, 8, 452, 56);
+    // stone pier joints
+    for (let y = 72; y < 300; y += 36) {
+      for (const px of [x0, x0 + 488]) {
+        fill(g, 'rgba(90,85,78,0.5)', px, y, 24, 2);
+        fill(hg, '#505050', px, y, 24, 2);
+      }
     }
-    // display windows and door
-    g.fillStyle = '#2b2f33';
-    g.fillRect(x0 + 10, 50, 236, 108);
-    const grad = g.createLinearGradient(0, 52, 0, 158);
-    grad.addColorStop(0, '#5d7487');
-    grad.addColorStop(1, '#22303b');
-    g.fillStyle = grad;
-    g.fillRect(x0 + 14, 54, 150, 104);
-    g.fillRect(x0 + 200, 54, 42, 104);
-    g.fillStyle = '#8a6a48';
-    g.fillRect(x0 + 168, 60, 28, 98);
-    g.fillStyle = 'rgba(255,240,210,0.15)';
-    g.fillRect(x0 + 14, 120, 150, 38);
-    // shelves of goods inside the window
-    for (let k = 0; k < 18; k++) {
-      g.fillStyle = `hsla(${rng() * 360},50%,60%,0.6)`;
-      g.fillRect(x0 + 20 + rng() * 135, 100 + rng() * 40, 8, 10);
+    // display window and door openings
+    const win = { x: x0 + 34, y: 74, w: 300, h: 214 };
+    const door = { x: x0 + 350, y: 92, w: 122, h: 206 };
+    for (const o of [win, door]) {
+      interior(g, e, rng, o.x, o.y, o.w, o.h, kind);
+      // reflection: a sky gradient and diagonal streaks over the interior
+      const grad = g.createLinearGradient(o.x, o.y, o.x, o.y + o.h);
+      grad.addColorStop(0, 'rgba(190,210,230,0.45)');
+      grad.addColorStop(0.5, 'rgba(120,140,160,0.18)');
+      grad.addColorStop(1, 'rgba(40,45,50,0.25)');
+      g.fillStyle = grad;
+      g.fillRect(o.x, o.y, o.w, o.h);
+      g.fillStyle = 'rgba(255,255,255,0.09)';
+      g.beginPath();
+      g.moveTo(o.x + o.w * 0.15, o.y);
+      g.lineTo(o.x + o.w * 0.4, o.y);
+      g.lineTo(o.x + o.w * 0.12, o.y + o.h);
+      g.lineTo(o.x - o.w * 0.12, o.y + o.h);
+      g.fill();
+      fill(r, '#141414', o.x, o.y, o.w, o.h);
+      fill(hg, '#303030', o.x, o.y, o.w, o.h);
+      // aluminium frame
+      g.strokeStyle = '#8e959b';
+      g.lineWidth = 7;
+      g.strokeRect(o.x, o.y, o.w, o.h);
+      hg.strokeStyle = '#e0e0e0';
+      hg.lineWidth = 7;
+      hg.strokeRect(o.x, o.y, o.w, o.h);
+      r.strokeStyle = '#606060';
+      r.lineWidth = 7;
+      r.strokeRect(o.x, o.y, o.w, o.h);
     }
-    r.fillStyle = '#303030';
-    r.fillRect(x0 + 14, 54, 150, 104);
-    r.fillRect(x0 + 200, 54, 42, 104);
+    // window mullion and transom
+    fill(g, '#8e959b', win.x + win.w / 2 - 3, win.y, 6, win.h);
+    fill(hg, '#e0e0e0', win.x + win.w / 2 - 3, win.y, 6, win.h);
+    fill(g, '#8e959b', door.x, door.y + 40, door.w, 6);
+    // door: glass with a long pull handle
+    fill(g, '#b8bec4', door.x + door.w - 26, door.y + 90, 6, 70);
+    fill(hg, '#ffffff', door.x + door.w - 26, door.y + 90, 6, 70);
+    fill(r, '#303030', door.x + door.w - 26, door.y + 90, 6, 70);
+    // dark granite stall riser under the window and a step at the door
+    fill(g, '#2c2b2a', win.x - 4, win.y + win.h + 2, win.w + 8, 30);
+    fill(hg, '#a0a0a0', win.x - 4, win.y + win.h + 2, win.w + 8, 30);
+    fill(r, '#606060', win.x - 4, win.y + win.h + 2, win.w + 8, 30);
+    fill(g, '#5d5a55', door.x - 6, H - 22, door.w + 12, 22);
   }
-  return { map: toTexture(c), roughnessMap: toTexture(rc, { srgb: false }) };
+  fill(g, 'rgba(0,0,0,0.4)', 0, H - 6, W, 6); // grime line at the pavement
+  return {
+    map: toTexture(c),
+    roughnessMap: toTexture(rc, { srgb: false }),
+    tintMask: toTexture(mc, { srgb: false }),
+    emissiveMap: toTexture(ec),
+    normalMap: heightToNormal(hc, 4),
+  };
+}
+
+// What you see through a shop window: a lit back wall, ceiling lights, and
+// goods that depend on the kind of shop.
+function interior(g, e, rng, x, y, w, h, kind) {
+  const wall = { fashion: '#efe6dc', cafe: '#d9b48a', grocery: '#eef1e8', tech: '#dfe5ec' }[kind];
+  const grad = g.createLinearGradient(x, y, x, y + h);
+  grad.addColorStop(0, wall);
+  grad.addColorStop(0.75, '#8c8172');
+  grad.addColorStop(1, '#4a4239');
+  g.fillStyle = grad;
+  g.fillRect(x, y, w, h);
+  // ceiling light strips
+  for (let lx = x + 20; lx < x + w - 20; lx += 60) {
+    g.fillStyle = '#fffdf2';
+    g.fillRect(lx, y + 8, 34, 4);
+    e.fillStyle = '#ffffff';
+    e.fillRect(lx - 4, y + 6, 42, 8);
+  }
+  const col = () => `hsl(${Math.floor(rng() * 360)},${40 + rng() * 40}%,${35 + rng() * 30}%)`;
+  if (kind === 'fashion') {
+    // clothes rails and two mannequins
+    for (const ry of [y + h * 0.35, y + h * 0.6]) {
+      g.fillStyle = '#6b6b6b';
+      g.fillRect(x + 10, ry, w - 20, 2);
+      for (let k = x + 14; k < x + w - 20; k += 9) {
+        g.fillStyle = col();
+        g.fillRect(k, ry + 2, 7, 26 + rng() * 14);
+      }
+    }
+    for (const mx of [x + w * 0.3, x + w * 0.7]) {
+      g.fillStyle = '#f1ece6';
+      g.beginPath();
+      g.arc(mx, y + h * 0.42, 7, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = col();
+      g.fillRect(mx - 12, y + h * 0.46, 24, 44);
+      g.fillStyle = '#3a3a3a';
+      g.fillRect(mx - 9, y + h * 0.46 + 44, 18, 40);
+    }
+  } else if (kind === 'cafe') {
+    // counter with a coffee machine, tables and pendant lamps
+    g.fillStyle = '#5a3b26';
+    g.fillRect(x + w * 0.55, y + h * 0.55, w * 0.42, h * 0.2);
+    g.fillStyle = '#b0b4b8';
+    g.fillRect(x + w * 0.7, y + h * 0.43, 30, 26);
+    for (let k = 0; k < 3; k++) {
+      const tx = x + 20 + k * 50;
+      g.fillStyle = '#3d2a1d';
+      g.fillRect(tx, y + h * 0.66, 36, 5);
+      g.fillRect(tx + 16, y + h * 0.66, 4, 30);
+      g.fillStyle = '#ffe3a3';
+      g.beginPath();
+      g.arc(tx + 18, y + h * 0.3, 8, 0, Math.PI);
+      g.fill();
+    }
+  } else if (kind === 'grocery') {
+    for (let sy = y + h * 0.25; sy < y + h * 0.78; sy += h * 0.13) {
+      g.fillStyle = '#9a9a96';
+      g.fillRect(x + 6, sy + 18, w - 12, 3);
+      for (let k = x + 8; k < x + w - 12; k += 7 + rng() * 5) {
+        g.fillStyle = col();
+        g.fillRect(k, sy + 18 - (8 + rng() * 10), 6, 8 + rng() * 10);
+      }
+    }
+  } else {
+    // tech: display tables with glowing screens
+    techScreens(g, e, x, y, w, h);
+  }
+  // at night the interior itself glows: copy it, dimmed towards the floor
+  e.save();
+  e.globalAlpha = 0.85;
+  e.drawImage(g.canvas, x, y, w, h, x, y, w, h);
+  e.restore();
+  const shade = e.createLinearGradient(x, y, x, y + h);
+  shade.addColorStop(0, 'rgba(0,0,0,0)');
+  shade.addColorStop(1, 'rgba(0,0,0,0.55)');
+  e.fillStyle = shade;
+  e.fillRect(x, y, w, h);
+  for (let lx = x + 20; lx < x + w - 20; lx += 60) {
+    e.fillStyle = '#ffffff';
+    e.fillRect(lx - 4, y + 6, 42, 8);
+  }
+}
+
+function techScreens(g, e, x, y, w, h) {
+  for (let k = 0; k < 4; k++) {
+    const tx = x + 14 + k * (w / 4);
+    g.fillStyle = '#d8d8d8';
+    g.fillRect(tx, y + h * 0.62, w / 4 - 20, 6);
+    g.fillStyle = '#7fb8ec';
+    g.fillRect(tx + 6, y + h * 0.5, w / 4 - 32, 20);
+  }
+}
+
+// ---------------------------------------------------------------- surface detail helpers
+
+// Tileable value noise in [0, 1]: `period` cells across the texture.
+function tileNoise(rng, period) {
+  const v = new Float32Array(period * period).map(() => rng());
+  return (u, w) => {
+    const x = u * period;
+    const y = w * period;
+    const x0 = Math.floor(x);
+    const y0 = Math.floor(y);
+    const fx = x - x0;
+    const fy = y - y0;
+    const sx = fx * fx * (3 - 2 * fx);
+    const sy = fy * fy * (3 - 2 * fy);
+    const at = (i, j) => v[(((j % period) + period) % period) * period + (((i % period) + period) % period)];
+    const a = at(x0, y0) + (at(x0 + 1, y0) - at(x0, y0)) * sx;
+    const b = at(x0, y0 + 1) + (at(x0 + 1, y0 + 1) - at(x0, y0 + 1)) * sx;
+    return a + (b - a) * sy;
+  };
+}
+
+function fbm(rng, base, octaves) {
+  const layers = [];
+  for (let o = 0; o < octaves; o++) layers.push(tileNoise(rng, base << o));
+  return (u, w) => {
+    let s = 0;
+    let a = 0.5;
+    let n = 0;
+    for (const f of layers) {
+      s += f(u, w) * a;
+      n += a;
+      a *= 0.5;
+    }
+    return s / n;
+  };
+}
+
+// Fills a canvas pixel by pixel: fn(u, v) returns [r, g, b] (0-255).
+function paint(ctx, w, h, fn) {
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const [r, g, b] = fn(x / w, y / h, x, y);
+      const i = (y * w + x) * 4;
+      d[i] = r;
+      d[i + 1] = g;
+      d[i + 2] = b;
+      d[i + 3] = 255;
+    }
+  ctx.putImageData(img, 0, 0);
+}
+
+// Turns a greyscale height canvas (bright = raised) into a tangent-space normal map.
+function heightToNormal(hc, strength = 2) {
+  const w = hc.width;
+  const h = hc.height;
+  const src = hc.getContext('2d').getImageData(0, 0, w, h).data;
+  const H = (x, y) => src[((((y % h) + h) % h) * w + (((x % w) + w) % w)) * 4] / 255;
+  const [c, g] = canvas(w, h);
+  const img = g.createImageData(w, h);
+  const d = img.data;
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const dx = (H(x + 1, y) - H(x - 1, y)) * strength;
+      const dy = (H(x, y + 1) - H(x, y - 1)) * strength;
+      const len = Math.hypot(dx, dy, 1);
+      const i = (y * w + x) * 4;
+      d[i] = ((-dx / len) * 0.5 + 0.5) * 255;
+      d[i + 1] = ((dy / len) * 0.5 + 0.5) * 255;
+      d[i + 2] = ((1 / len) * 0.5 + 0.5) * 255;
+      d[i + 3] = 255;
+    }
+  g.putImageData(img, 0, 0);
+  return toTexture(c, { srgb: false });
+}
+
+// A wandering crack drawn on several canvases at once.
+function crack(ctxs, rng, x, y, len, width) {
+  let a = rng() * Math.PI * 2;
+  const pts = [[x, y]];
+  for (let k = 0; k < len; k++) {
+    a += (rng() - 0.5) * 1.1;
+    x += Math.cos(a) * 9;
+    y += Math.sin(a) * 9;
+    pts.push([x, y]);
+    if (rng() < 0.12 && len > 4) crack(ctxs, rng, x, y, Math.floor(len / 3), width * 0.7);
+  }
+  for (const [g, style] of ctxs) {
+    g.strokeStyle = style;
+    g.lineWidth = width;
+    g.lineJoin = 'round';
+    g.beginPath();
+    g.moveTo(pts[0][0], pts[0][1]);
+    for (const p of pts) g.lineTo(p[0], p[1]);
+    g.stroke();
+  }
 }
 
 // ---------------------------------------------------------------- ground surfaces
 
+// Road asphalt: aggregate grain, tonal blotches, tyre-polished bands, sealed
+// cracks, patch repairs and oil stains. 1024 px covers 8 m.
 export function makeAsphalt() {
+  const S = 1024;
   const rng = makeRng(11);
-  const [c, g] = canvas(512, 512);
-  g.fillStyle = '#4a4c50';
-  g.fillRect(0, 0, 512, 512);
-  noise(g, 512, 512, rng, 40000, 0.12, 2);
-  // patches and cracks
-  for (let i = 0; i < 6; i++) {
-    g.fillStyle = `rgba(30,30,32,${0.15 + rng() * 0.1})`;
-    g.fillRect(rng() * 512, rng() * 512, 40 + rng() * 90, 30 + rng() * 60);
+  const [c, g] = canvas(S, S);
+  const [hc, h] = canvas(S, S);
+  const [rc, r] = canvas(S, S);
+  const big = fbm(rng, 3, 4);
+  const fine = fbm(rng, 64, 3);
+  paint(g, S, S, (u, v) => {
+    const t = big(u, v);
+    const f = fine(u, v);
+    const speck = rng();
+    let k = 78 + (t - 0.5) * 26 + (f - 0.5) * 30;
+    if (speck > 0.985) k += 40 + rng() * 40; // light stones in the mix
+    else if (speck < 0.02) k -= 22;
+    return [k * 1.03, k, k * 0.95];
+  });
+  paint(h, S, S, (u, v) => {
+    const k = 128 + (fine(u, v) - 0.5) * 120 + (rng() - 0.5) * 50;
+    return [k, k, k];
+  });
+  paint(r, S, S, (u, v) => {
+    const k = 225 - big(u, v) * 30;
+    return [k, k, k];
+  });
+  // patch repairs: darker, smoother rectangles with sealed edges
+  for (let i = 0; i < 4; i++) {
+    const w = 120 + rng() * 260;
+    const hh = 80 + rng() * 180;
+    const x = rng() * S;
+    const y = rng() * S;
+    g.fillStyle = `rgba(30,29,28,${0.1 + rng() * 0.1})`;
+    g.fillRect(x, y, w, hh);
+    g.strokeStyle = 'rgba(20,20,20,0.35)';
+    g.lineWidth = 3;
+    g.strokeRect(x, y, w, hh);
+    h.fillStyle = 'rgba(150,150,150,0.5)';
+    h.fillRect(x, y, w, hh);
+    r.fillStyle = 'rgba(200,200,200,0.6)';
+    r.fillRect(x, y, w, hh);
   }
-  g.strokeStyle = 'rgba(20,20,20,0.35)';
-  for (let i = 0; i < 8; i++) {
-    g.beginPath();
-    let x = rng() * 512;
-    let y = rng() * 512;
-    g.moveTo(x, y);
-    for (let k = 0; k < 6; k++) {
-      x += (rng() - 0.5) * 40;
-      y += (rng() - 0.5) * 40;
-      g.lineTo(x, y);
-    }
-    g.stroke();
+  // cracks, filled with dark sealant
+  for (let i = 0; i < 9; i++) {
+    crack([[g, 'rgba(14,14,15,0.75)'], [h, 'rgba(20,20,20,0.9)'], [r, 'rgba(150,150,150,0.9)']], rng, rng() * S, rng() * S, 8 + Math.floor(rng() * 14), 2 + rng() * 2.5);
   }
+  // oil drips and tyre marks: darker and glossier
+  for (let i = 0; i < 26; i++) {
+    const x = rng() * S;
+    const y = rng() * S;
+    const rad = 10 + rng() * 45;
+    const grad = g.createRadialGradient(x, y, 0, x, y, rad);
+    grad.addColorStop(0, `rgba(10,10,12,${0.25 + rng() * 0.3})`);
+    grad.addColorStop(1, 'rgba(10,10,12,0)');
+    g.fillStyle = grad;
+    g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+    const rg = r.createRadialGradient(x, y, 0, x, y, rad);
+    rg.addColorStop(0, 'rgba(90,90,90,0.7)');
+    rg.addColorStop(1, 'rgba(90,90,90,0)');
+    r.fillStyle = rg;
+    r.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  return { map: toTexture(c), normalMap: heightToNormal(hc, 3), roughnessMap: toTexture(rc, { srgb: false }) };
+}
+
+// Worn road paint: mostly bright, with scuffed patches where the asphalt shows
+// through. UVs are in metres.
+export function makeWornPaint() {
+  const S = 512;
+  const rng = makeRng(21);
+  const [c, g] = canvas(S, S);
+  const n = fbm(rng, 6, 4);
+  paint(g, S, S, (u, v) => {
+    const t = n(u, v);
+    const wear = Math.min(1, Math.max(0, (t - 0.52) * 5));
+    let k = 245 - wear * 150 - rng() * 25;
+    if (rng() < 0.03) k -= 70; // grit
+    return [k, k, k];
+  });
   return toTexture(c);
 }
 
+// Pavement slabs (1 m), each a slightly different tone, with chips, joints and stains.
 export function makePaving() {
+  const S = 512;
   const rng = makeRng(12);
-  const [c, g] = canvas(256, 256);
-  g.fillStyle = '#b9b6ae';
-  g.fillRect(0, 0, 256, 256);
-  for (let y = 0; y < 4; y++)
-    for (let x = 0; x < 4; x++) {
-      const v = 175 + Math.floor(rng() * 25);
-      g.fillStyle = `rgb(${v},${v - 3},${v - 8})`;
-      g.fillRect(x * 64 + 2, y * 64 + 2, 60, 60);
+  const [c, g] = canvas(S, S);
+  const [hc, h] = canvas(S, S);
+  const n = fbm(rng, 8, 4);
+  const cell = S / 4;
+  const tones = [];
+  for (let i = 0; i < 16; i++) tones.push(172 + rng() * 26);
+  paint(g, S, S, (u, v, x, y) => {
+    const t = tones[Math.floor(y / cell) * 4 + Math.floor(x / cell)];
+    const k = t + (n(u, v) - 0.5) * 22 + (rng() - 0.5) * 18;
+    return [k, k - 3, k - 9];
+  });
+  paint(h, S, S, () => {
+    const k = 170 + (rng() - 0.5) * 30;
+    return [k, k, k];
+  });
+  for (let i = 0; i <= 4; i++) {
+    for (const [ctx, style] of [[g, 'rgba(90,86,80,0.4)'], [h, '#383838']]) {
+      ctx.fillStyle = style;
+      ctx.fillRect(i * cell - 1, 0, 2, S);
+      ctx.fillRect(0, i * cell - 1, S, 2);
     }
-  noise(g, 256, 256, rng, 6000, 0.08);
-  return toTexture(c);
+  }
+  // gum spots, stains and chipped corners
+  for (let i = 0; i < 40; i++) {
+    g.fillStyle = `rgba(60,58,55,${0.15 + rng() * 0.25})`;
+    g.beginPath();
+    g.arc(rng() * S, rng() * S, 2 + rng() * 4, 0, Math.PI * 2);
+    g.fill();
+  }
+  for (let i = 0; i < 8; i++) {
+    const x = rng() * S;
+    const y = rng() * S;
+    const rad = 20 + rng() * 50;
+    const grad = g.createRadialGradient(x, y, 0, x, y, rad);
+    grad.addColorStop(0, 'rgba(90,85,75,0.22)');
+    grad.addColorStop(1, 'rgba(90,85,75,0)');
+    g.fillStyle = grad;
+    g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  for (let i = 0; i < 3; i++) crack([[g, 'rgba(60,58,54,0.6)'], [h, 'rgba(40,40,40,0.9)']], rng, rng() * S, rng() * S, 4, 1.5);
+  return { map: toTexture(c), normalMap: heightToNormal(hc, 2.5) };
 }
 
 export function makeConcrete() {
+  const S = 512;
   const rng = makeRng(13);
-  const [c, g] = canvas(256, 256);
-  g.fillStyle = '#a9a8a2';
-  g.fillRect(0, 0, 256, 256);
-  noise(g, 256, 256, rng, 9000, 0.07, 3);
-  g.strokeStyle = 'rgba(60,60,60,0.25)';
-  g.strokeRect(0.5, 0.5, 255, 255);
-  return toTexture(c);
+  const [c, g] = canvas(S, S);
+  const [hc, h] = canvas(S, S);
+  const n = fbm(rng, 4, 5);
+  paint(g, S, S, (u, v) => {
+    const k = 168 + (n(u, v) - 0.5) * 40 + (rng() - 0.5) * 22;
+    return [k, k - 1, k - 6];
+  });
+  paint(h, S, S, (u, v) => {
+    const k = 128 + (n(u, v) - 0.5) * 60 + (rng() - 0.5) * 60;
+    return [k, k, k];
+  });
+  g.strokeStyle = 'rgba(60,60,60,0.35)';
+  g.lineWidth = 3;
+  g.strokeRect(1.5, 1.5, S - 3, S - 3);
+  h.strokeStyle = '#303030';
+  h.lineWidth = 4;
+  h.strokeRect(2, 2, S - 4, S - 4);
+  for (let i = 0; i < 4; i++) crack([[g, 'rgba(70,70,70,0.5)'], [h, 'rgba(40,40,40,0.9)']], rng, rng() * S, rng() * S, 6, 1.5);
+  return { map: toTexture(c), normalMap: heightToNormal(hc, 2) };
 }
 
 export function makeGrass() {

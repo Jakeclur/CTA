@@ -89,9 +89,12 @@ export class Pedestrians {
   randomLook() {
     const r = this.rng;
     const top = r.pick(TOPS);
+    const build = r.chance(0.5) ? 'f' : 'm';
+    const hairStyle = build === 'f' ? r.pick(['long', 'long', 'bun', 'short']) : r.pick(['short', 'short', 'short', 'bald']);
     return {
-      skin: r.pick(SKIN), shirt: top, jacket: r.chance(0.3) ? r.pick(TOPS) : top, pants: r.pick(PANTS),
-      shoes: r.pick(SHOES), hair: r.pick(HAIR), cap: r.chance(0.15),
+      skin: r.pick(SKIN), shirt: top, jacket: r.chance(0.35) ? r.pick(TOPS) : top, pants: r.pick(PANTS),
+      shoes: r.pick(SHOES), hair: r.pick(HAIR), cap: r.chance(0.12), capColour: r.pick(TOPS),
+      build, hairStyle, shorts: r.chance(0.2),
     };
   }
 
