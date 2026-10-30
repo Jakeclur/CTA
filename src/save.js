@@ -21,6 +21,7 @@ export const DEFAULT_PROGRESS = {
   z: null,
   heading: 0,
   stats: { pickups: 0, distanceDriven: 0 },
+  missions: [], // ids of completed missions
 };
 
 function read(key) {

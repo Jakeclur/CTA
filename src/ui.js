@@ -6,7 +6,7 @@ const $ = (id) => document.getElementById(id);
 
 export class UI {
   constructor() {
-    this.screens = ['loading', 'menu', 'pause', 'settings', 'controls', 'bigmap'];
+    this.screens = ['loading', 'menu', 'pause', 'settings', 'controls', 'bigmap', 'missions'];
     this.current = 'loading';
     this.returnTo = 'menu';
     this.handlers = {};
@@ -37,10 +37,13 @@ export class UI {
     click('btn-psettings', () => this.openSettings('pause'));
     click('btn-pcontrols', () => this.openControls('pause'));
     click('btn-quit', () => this.emit('quit'));
+    click('btn-missions', () => this.emit('missions'));
+    click('btn-missions-back', () => this.show('pause'));
+    click('btn-abandon', () => this.emit('abandon'));
     click('btn-settings-back', () => this.show(this.returnTo));
     click('btn-controls-back', () => this.show(this.returnTo));
     click('btn-reset', () => {
-      if (confirm('Reset your cash and saved position? Settings are kept.')) this.emit('reset');
+      if (confirm('Reset your cash, missions and saved position? Settings are kept.')) this.emit('reset');
     });
   }
 
@@ -202,7 +205,109 @@ export class UI {
     setTimeout(() => el.remove(), 5000);
   }
 
-  blackout(v) {
+  blackout(v, title = 'YOU BLACKED OUT', text = 'Patched up at Port Solano General. The hospital kept a little cash.') {
+    if (v) {
+      $('blackout-title').textContent = title;
+      $('blackout-text').textContent = text;
+    }
     $('blackout').classList.toggle('show', v);
+  }
+
+  // ---------------------------------------------------------- missions and police
+  setWanted(level, flashing) {
+    const key = `${level}:${flashing}`;
+    if (key === this.lastWanted) return;
+    this.lastWanted = key;
+    const el = $('wanted');
+    el.innerHTML = '';
+    for (let i = 0; i < 5; i++) {
+      const s = document.createElement('span');
+      s.className = i < level ? 'star on' : 'star';
+      s.textContent = '★';
+      el.append(s);
+    }
+    el.classList.toggle('flash', !!flashing && level > 0);
+    el.setAttribute('aria-label', `Wanted level ${level} of 5`);
+  }
+
+  setObjective(label, dist) {
+    const el = $('objective');
+    if (!label) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+    const txt = $('objective-text');
+    if (txt.textContent !== label) txt.textContent = label;
+    $('objective-dist').textContent = dist === null || dist === undefined || dist < 8 ? '' : `${Math.round(dist)} m`;
+  }
+
+  setTimer(sec) {
+    const el = $('timer');
+    if (sec === null || sec === undefined) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+    const s = Math.max(0, Math.ceil(sec));
+    el.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    el.classList.toggle('low', sec < 10);
+  }
+
+  phone(from, text) {
+    $('phone-from').textContent = from;
+    $('phone-text').textContent = text;
+    const el = $('phone');
+    el.hidden = false;
+    // restart the slide-in animation for back-to-back messages
+    el.style.animation = 'none';
+    void el.offsetWidth;
+    el.style.animation = '';
+    clearTimeout(this.phoneTimer);
+    this.phoneTimer = setTimeout(() => (el.hidden = true), 4000 + text.length * 45);
+  }
+
+  banner(title, sub, cls, ms) {
+    const el = $('mission-banner');
+    el.querySelector('.mb-title').textContent = title;
+    el.querySelector('.mb-sub').textContent = sub || '';
+    el.className = `show ${cls}`;
+    clearTimeout(this.bannerTimer);
+    this.bannerTimer = setTimeout(() => el.classList.remove('show'), ms);
+  }
+
+  missionTitle(title) {
+    this.banner(title, '', 'intro', 2600);
+  }
+
+  missionResult(passed, title, sub) {
+    this.banner(passed ? 'MISSION PASSED' : 'MISSION FAILED', passed ? sub : sub || title, passed ? '' : 'failed', 3800);
+  }
+
+  // list: [{ title, summary, status: 'done' | 'available' | 'locked' | 'active', where }]
+  renderMissions(list, active) {
+    const box = $('mission-list');
+    box.innerHTML = '';
+    for (const m of list) {
+      const row = document.createElement('div');
+      row.className = 'mission-row';
+      const b = document.createElement('b');
+      b.textContent = m.title;
+      const tag = document.createElement('span');
+      tag.className = `tag ${m.status === 'locked' ? 'locked' : ''}`;
+      tag.textContent = { done: 'Completed', available: 'Available', locked: 'Locked', active: 'In progress' }[m.status];
+      const s = document.createElement('span');
+      s.textContent = m.status === 'locked' ? m.lockedText : `${m.summary} ${m.where || ''}`;
+      row.append(b, s, tag);
+      if (m.canReplay) {
+        const btn = document.createElement('button');
+        btn.className = 'btn';
+        btn.textContent = m.status === 'done' ? 'Replay' : 'Start';
+        btn.addEventListener('click', () => this.emit('startMission', m.id));
+        row.append(btn);
+      }
+      box.append(row);
+    }
+    $('btn-abandon').hidden = !active;
   }
 }

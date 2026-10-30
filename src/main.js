@@ -11,6 +11,10 @@ import { VehicleManager } from './vehicles.js';
 import { Minimap } from './minimap.js';
 import { CashPickups, VendingMachines, DRINK_PRICE, DRINK_HEAL } from './interactables.js';
 import { UI } from './ui.js';
+import { Police } from './police.js';
+import { Missions } from './missions.js';
+import { MISSIONS } from './missionData.js';
+import { gpsRoute } from './roads.js';
 import { loadSettings, saveSettings, loadProgress, saveProgress, clearProgress, hasProgress, DEFAULT_PROGRESS } from './save.js';
 import { ROAD_LINES, ROAD_HALF, CITY_NAME } from './config.js';
 
@@ -42,6 +46,10 @@ class Game {
     this.mapFrom = 'playing';
     this.exitWarned = 0;
     this.pausedAt = 0;
+    this.waypoint = null; // { x, z } set on the full-screen map
+    this.nav = null; // what the GPS is currently guiding to
+    this.navT = 0;
+    this._pp = new THREE.Vector3();
   }
 
   async init() {
@@ -95,6 +103,10 @@ class Game {
       if (!locked && this.state === 'playing' && !this.input.dragging) this.pause();
     };
     this.rig = new CameraRig(this.camera);
+    this.police = new Police(this);
+    this.police.onLevelChange = (level, before, reason) => this.onWantedChange(level, before, reason);
+    this.missions = new Missions(this, MISSIONS);
+    this.bindBigMap();
 
     this.ui.bindSettings(this.settings, (s) => this.applySettings(s));
     this.applySettings(this.settings);
@@ -158,8 +170,20 @@ class Game {
       if (this.state === 'paused') {
         this.cash = DEFAULT_PROGRESS.cash;
         this.player.health = 100;
+        if (this.missions.active) this.missions.cleanup();
+        this.missions.load([]);
       }
-      ui.notify('Progress reset', 'Cash and position were cleared.', 'warn');
+      ui.notify('Progress reset', 'Cash, missions and position were cleared.', 'warn');
+    });
+    ui.on('missions', () => this.showMissions());
+    ui.on('abandon', () => {
+      this.missions.abandon();
+      this.resume();
+    });
+    ui.on('startMission', (id) => {
+      const def = MISSIONS.find((d) => d.id === id);
+      this.resume();
+      if (def) this.missions.start(def);
     });
 
     window.addEventListener('keydown', (e) => {
@@ -183,6 +207,9 @@ class Game {
 
   toMenu() {
     if (this.player.vehicle) this.leaveVehicleInstant();
+    if (this.missions.active) this.missions.cleanup();
+    this.police.reset();
+    this.waypoint = null;
     this.state = 'menu';
     this.input.enabled = false;
     this.input.releaseLock();
@@ -197,6 +224,11 @@ class Game {
     this.cash = progress.cash;
     this.player.health = progress.health > 0 ? progress.health : 100;
     this.stats = { ...progress.stats };
+    this.missions.load(progress.missions);
+    this.missions.playTime = 0;
+    this.missions.autoDone.clear();
+    this.police.reset();
+    this.waypoint = null;
     let x = w.spawn.x;
     let z = w.spawn.z;
     let heading = w.spawn.heading;
@@ -268,7 +300,11 @@ class Game {
     const z = this.player.vehicle ? p.z : p.pos.z;
     const h = this.player.vehicle ? p.heading : p.facing;
     // wait one frame so the canvas has its final CSS size
-    requestAnimationFrame(() => this.minimap.drawBig(x, z, h, STREETS_NS, STREETS_EW, ROAD_LINES));
+    const navs = [];
+    const m = this.missions.navTarget;
+    if (m) navs.push({ ...m, color: '#ffd23f', route: gpsRoute(x, z, m.x, m.z) });
+    if (this.waypoint) navs.push({ ...this.waypoint, color: '#c084fc', route: m ? null : gpsRoute(x, z, this.waypoint.x, this.waypoint.z) });
+    requestAnimationFrame(() => this.minimap.drawBig(x, z, h, STREETS_NS, STREETS_EW, ROAD_LINES, navs));
   }
 
   saveNow() {
@@ -281,6 +317,7 @@ class Game {
       z: v ? v.z : this.player.pos.z,
       heading: v ? v.heading : this.player.facing,
       stats: this.stats,
+      missions: this.missions.serialize(),
     });
   }
 
@@ -360,6 +397,11 @@ class Game {
         v.driver = p;
         v.asleep = false;
         p.setVisible(false);
+        if (v.type === 'police') {
+          this.police.release(v);
+          this.police.crime('Stealing a police car', 2);
+        }
+        v.ctrl = null;
         this.ui.notify(v.name, VEHICLE_HINT, '');
       }
       if (tr.t > 0.45) v.doorTarget = 0;
@@ -476,6 +518,16 @@ class Game {
       this.rig.shake = Math.min(0.3, impact * 0.02);
     }
 
+    // ---- crimes from collisions
+    if (live) this.checkHits();
+    this.vehicles.hits.length = 0;
+
+    // ---- police and missions
+    if (live) {
+      this.police.update(dt);
+      this.missions.update(dt);
+    }
+
     // ---- pickups and prompts
     const got = this.pickups.update(dt, this.time, p.pos, !!p.vehicle, w.heightAt);
     if (got > 0) {
@@ -504,7 +556,10 @@ class Game {
     if (cv) this.ui.setSpeed(Math.abs(cv.forwardSpeed) * 3.6, cv.name, cv.spec.maxSpeed * 3.6);
     else this.ui.setSpeed(null);
     const heading = cv ? cv.heading : p.facing;
-    this.minimap.draw(p.pos.x, p.pos.z, heading, this.rig.yaw);
+    this.ui.setWanted(this.police.level, this.police.searching);
+    this.updateNav(dt);
+    const blips = this.police.units.map((u) => ({ x: u.v.x, z: u.v.z, color: Math.floor(this.time * 4) % 2 ? '#ef4444' : '#3b82f6' }));
+    this.minimap.draw(p.pos.x, p.pos.z, heading, this.rig.yaw, this.nav, blips);
     this.ui.setLookHint(live && !input.locked && now - input.lastMouseMove > 4000);
 
     this.areaTimer -= dt;
@@ -555,6 +610,8 @@ class Game {
     this.input.enabled = false;
     this.input.reset();
     this.ui.blackout(true);
+    this.missions.fail('You blacked out');
+    this.police.reset();
     setTimeout(() => {
       this.leaveVehicleInstant();
       const r = this.world.respawn;
@@ -570,6 +627,121 @@ class Game {
       this.ui.notify('Hospital bill', `You paid $${fee} for treatment.`, 'warn');
       this.saveNow();
     }, 2600);
+  }
+
+  // Busted: taken to the police station and fined.
+  arrest(level) {
+    if (this.state !== 'playing') return;
+    this.state = 'blackout';
+    this.input.enabled = false;
+    this.input.reset();
+    const fine = Math.min(this.cash, 150 * level);
+    this.ui.blackout(true, 'BUSTED', `Booked at the Police Station. The fine was $${fine}.`);
+    this.missions.fail('You were busted');
+    this.police.reset();
+    setTimeout(() => {
+      this.leaveVehicleInstant();
+      const r = this.world.policeRespawn;
+      this.player.setPosition(r.x, this.world.heightAt(r.x, r.z), r.z, r.heading);
+      this.player.setVisible(true);
+      this.cash -= fine;
+      this.rig.snap(new THREE.Vector3(r.x, this.world.heightAt(r.x, r.z) + 1.55, r.z), r.heading);
+      this.ui.blackout(false);
+      this.state = 'playing';
+      this.input.enabled = true;
+      this.ui.notify('Released', `You paid a $${fine} fine.`, 'warn');
+      this.saveNow();
+    }, 2600);
+  }
+
+  // Where the player is: their car if they are driving.
+  playerPosition() {
+    const v = this.player.vehicle;
+    if (v) return this._pp.set(v.x, v.y, v.z);
+    return this._pp.copy(this.player.pos);
+  }
+
+  onWantedChange(level, before, reason) {
+    if (level > before) {
+      this.ui.notify(`Wanted: ${'★'.repeat(level)}`, reason || 'The police are after you.', 'warn');
+    } else if (level === 0 && reason === 'lost') {
+      this.ui.notify('You lost them', 'The police have stopped looking for you.', 'money');
+    }
+  }
+
+  // Car-to-car hits the player caused this frame
+  checkHits() {
+    const pv = this.player.vehicle;
+    if (!pv) return;
+    for (const h of this.vehicles.hits) {
+      const other = h.a === pv ? h.b : h.b === pv ? h.a : null;
+      if (!other) continue;
+      if (other.role === 'police' && h.impact > 2) this.police.crime('Ramming a police car', 2);
+      else if (other.role === 'traffic' && h.impact > 9) this.police.crime('Reckless driving', 1);
+    }
+  }
+
+  // GPS: mission objectives win over the player's own waypoint
+  updateNav(dt) {
+    const pos = this.playerPosition();
+    if (this.waypoint && Math.hypot(pos.x - this.waypoint.x, pos.z - this.waypoint.z) < 12) {
+      this.waypoint = null;
+      this.ui.notify('Arrived', 'Waypoint reached.', '');
+    }
+    const m = this.missions.navTarget;
+    const t = m ? { x: m.x, z: m.z, color: '#ffd23f' } : this.waypoint ? { ...this.waypoint, color: '#c084fc' } : null;
+    if (!t) {
+      this.nav = null;
+      return;
+    }
+    this.navT -= dt;
+    const moved = !this.nav || Math.hypot(this.nav.x - t.x, this.nav.z - t.z) > 2;
+    if (moved || this.navT <= 0) {
+      this.navT = 1;
+      this.nav = { ...t, route: gpsRoute(pos.x, pos.z, t.x, t.z) };
+    } else if (this.nav.route) {
+      this.nav.route[0] = [pos.x, pos.z];
+    }
+  }
+
+  bindBigMap() {
+    const c = document.getElementById('bigmap-canvas');
+    c.addEventListener('click', (e) => {
+      if (this.state !== 'map') return;
+      const r = c.getBoundingClientRect();
+      const w = this.minimap.bigToWorld(e.clientX - r.left, e.clientY - r.top);
+      if (!w || Math.abs(w.x) > 340 || w.z < -340 || w.z > 345) return;
+      this.waypoint = w;
+      this.drawBigMap();
+    });
+    c.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (this.state !== 'map') return;
+      this.waypoint = null;
+      this.drawBigMap();
+    });
+  }
+
+  showMissions() {
+    const ms = this.missions;
+    const list = MISSIONS.map((d) => {
+      const done = ms.completed.has(d.id);
+      const active = ms.active?.def === d;
+      const avail = ms.isAvailable(d);
+      const status = active ? 'active' : done ? 'done' : avail ? 'available' : 'locked';
+      const req = (d.requires || []).map((id) => MISSIONS.find((x) => x.id === id)?.title).join(', ');
+      return {
+        id: d.id,
+        title: d.title,
+        summary: d.summary,
+        where: d.start && !done ? `Start: ${d.where}.` : '',
+        lockedText: `Finish ${req} first.`,
+        status,
+        canReplay: !ms.active && avail && (done || !d.start),
+      };
+    });
+    this.ui.renderMissions(list, !!ms.active);
+    this.ui.show('missions');
   }
 }
 

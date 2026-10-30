@@ -121,6 +121,7 @@ export async function buildWorld(scene, onProgress) {
     spots: ctx.spots,
     spawn: ctx.spawn,
     respawn: ctx.respawn,
+    policeRespawn: ctx.policeRespawn,
     update(dt, t) {
       props.update(dt, t);
     },
@@ -492,6 +493,7 @@ function genPolice(ctx, b, rng) {
     ctx.spots.parking.push({ x, z: L.z1 - 8, heading: Math.PI, type: 'police' });
     lotStall(ctx, x, L.z1 - 8, 3.2, 6, true);
   }
+  ctx.policeRespawn = { x: (b.x0 + b.x1) / 2 + 18, z: b.z1 - 2, heading: 0 };
   ctx.map.pois.push({ x: (b.x0 + b.x1) / 2, z: (b.z0 + b.z1) / 2, type: 'police', label: 'Police Station' });
 }
 

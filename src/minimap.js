@@ -61,7 +61,8 @@ export class Minimap {
   }
 
   // Draws the circular minimap, rotated so the camera's view direction is up.
-  draw(px, pz, heading, camYaw) {
+  // nav: { x, z, route: [[x, z], ...], color } or null
+  draw(px, pz, heading, camYaw, nav = null, blips = []) {
     const g = this.ctx;
     const W = this.canvas.width;
     const H = this.canvas.height;
@@ -80,6 +81,27 @@ export class Minimap {
     g.drawImage(this.base, -(px + EXTENT) * PX, -(pz + EXTENT) * PX);
     g.restore();
 
+    // GPS route
+    if (nav && nav.route) {
+      g.save();
+      g.beginPath();
+      g.arc(W / 2, H / 2, W / 2 - 2, 0, Math.PI * 2);
+      g.clip();
+      g.strokeStyle = nav.color;
+      g.lineWidth = 7;
+      g.lineJoin = 'round';
+      g.lineCap = 'round';
+      g.globalAlpha = 0.85;
+      g.beginPath();
+      nav.route.forEach(([x, z], i) => {
+        const [sx, sy] = this.toScreen(x, z, px, pz, camYaw, scale, W, H);
+        if (i === 0) g.moveTo(sx, sy);
+        else g.lineTo(sx, sy);
+      });
+      g.stroke();
+      g.restore();
+    }
+
     // points of interest
     g.save();
     for (const p of this.world.map.pois) {
@@ -92,6 +114,30 @@ export class Minimap {
       this.icon(g, W / 2 + dx * k, H / 2 + dy * k, p.type, 9);
     }
     g.restore();
+
+    // police and other moving blips (not clamped: they vanish off the edge)
+    for (const b of blips) {
+      const [sx, sy] = this.toScreen(b.x, b.z, px, pz, camYaw, scale, W, H);
+      if (Math.hypot(sx - W / 2, sy - H / 2) > W / 2 - 8) continue;
+      g.fillStyle = b.color;
+      g.strokeStyle = 'rgba(0,0,0,0.7)';
+      g.lineWidth = 1.5;
+      g.beginPath();
+      g.arc(sx, sy, 6, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
+    }
+
+    // destination blip, held on the rim when it is off the map
+    if (nav) {
+      const [sx, sy] = this.toScreen(nav.x, nav.z, px, pz, camYaw, scale, W, H);
+      const dx = sx - W / 2;
+      const dy = sy - H / 2;
+      const d = Math.hypot(dx, dy);
+      const rmax = W / 2 - 14;
+      const k = d > rmax ? rmax / d : 1;
+      this.target(g, W / 2 + dx * k, H / 2 + dy * k, nav.color, 11);
+    }
 
     // player arrow
     g.save();
@@ -150,8 +196,29 @@ export class Minimap {
     g.fillText(st.letter, x, y + 0.5);
   }
 
+  target(g, x, y, color, r) {
+    g.fillStyle = color;
+    g.strokeStyle = 'rgba(0,0,0,0.75)';
+    g.lineWidth = 2;
+    g.beginPath();
+    g.moveTo(x, y - r);
+    g.lineTo(x + r, y);
+    g.lineTo(x, y + r);
+    g.lineTo(x - r, y);
+    g.closePath();
+    g.fill();
+    g.stroke();
+  }
+
+  // Converts a click on the full-screen map (CSS pixels inside the canvas) to world metres.
+  bigToWorld(cx, cy) {
+    const t = this.bigTransform;
+    if (!t) return null;
+    return { x: (cx * t.dpr - t.ox) / t.scale, z: (cy * t.dpr - t.oy) / t.scale };
+  }
+
   // Full-screen map, north up, with labels.
-  drawBig(px, pz, heading, streetsNS, streetsEW, roadLines) {
+  drawBig(px, pz, heading, streetsNS, streetsEW, roadLines, navs = []) {
     const c = this.big;
     const rect = c.getBoundingClientRect();
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -167,6 +234,7 @@ export class Minimap {
     const ox = W / 2;
     const oy = H / 2 - 28 * scale; // centre the view slightly south to include the beach
     const S = (x, z) => [ox + x * scale, oy + z * scale];
+    this.bigTransform = { ox, oy, scale, dpr };
     g.fillStyle = '#16202a';
     g.fillRect(0, 0, W, H);
     const [bx, by] = S(-EXTENT, -EXTENT);
@@ -194,6 +262,26 @@ export class Minimap {
       g.fillStyle = '#fff';
       g.font = `600 ${Math.round(11 * dpr)}px system-ui, sans-serif`;
       g.fillText(p.label, x, y + 20 * dpr);
+    }
+
+    for (const n of navs) {
+      if (n.route) {
+        g.save();
+        g.strokeStyle = n.color;
+        g.globalAlpha = 0.85;
+        g.lineWidth = 4 * dpr;
+        g.lineJoin = 'round';
+        g.beginPath();
+        n.route.forEach(([x, z], i) => {
+          const [sx, sy] = S(x, z);
+          if (i === 0) g.moveTo(sx, sy);
+          else g.lineTo(sx, sy);
+        });
+        g.stroke();
+        g.restore();
+      }
+      const [tx, ty] = S(n.x, n.z);
+      this.target(g, tx, ty, n.color, 10 * dpr);
     }
 
     const [mx, my] = S(px, pz);

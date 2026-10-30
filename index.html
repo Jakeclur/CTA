@@ -41,7 +41,7 @@
           <button id="btn-settings" class="btn">Settings</button>
           <button id="btn-controls" class="btn">Controls</button>
         </nav>
-        <p class="menu-note">Stage 1 prototype · progress saves in this browser</p>
+        <p class="menu-note">Progress saves in this browser</p>
       </div>
     </section>
 
@@ -52,10 +52,23 @@
         <nav class="menu-buttons">
           <button id="btn-resume" class="btn primary">Resume</button>
           <button id="btn-map" class="btn">Map</button>
+          <button id="btn-missions" class="btn">Missions</button>
           <button id="btn-psettings" class="btn">Settings</button>
           <button id="btn-pcontrols" class="btn">Controls</button>
           <button id="btn-quit" class="btn ghost">Save &amp; quit to menu</button>
         </nav>
+      </div>
+    </section>
+
+    <!-- Missions list -->
+    <section id="missions" class="screen dim">
+      <div class="panel">
+        <h2>Missions</h2>
+        <div id="mission-list" class="mission-list"></div>
+        <div class="row">
+          <button id="btn-abandon" class="btn ghost danger" hidden>Abandon current mission</button>
+          <button id="btn-missions-back" class="btn primary">Back</button>
+        </div>
       </div>
     </section>
 
@@ -135,7 +148,8 @@
         <span><i style="background:#f97316"></i>Fuel</span>
         <span><i style="background:#eab308"></i>Garage</span>
         <span><i style="background:#64748b"></i>Parking</span>
-        <span class="muted">Press M or Esc to close</span>
+        <span><i style="background:#c084fc"></i>Waypoint</span>
+        <span class="muted">Click to set a waypoint · right-click to clear · M or Esc to close</span>
       </div>
     </section>
 
@@ -145,7 +159,15 @@
       <div id="notifications"></div>
       <div class="hud-topright">
         <div id="cash">$0</div>
+        <div id="wanted" aria-label="Wanted level"></div>
+        <div id="timer" hidden></div>
       </div>
+      <div id="phone" hidden>
+        <div class="phone-head"><span class="phone-icon">&#9742;</span><b id="phone-from"></b></div>
+        <p id="phone-text"></p>
+      </div>
+      <div id="objective" hidden><span id="objective-text"></span><span id="objective-dist"></span></div>
+      <div id="mission-banner"><div class="mb-title"></div><div class="mb-sub"></div></div>
       <div class="hud-map">
         <canvas id="minimap" width="440" height="440"></canvas>
         <div class="healthbar"><div id="health-fill"></div></div>
@@ -167,7 +189,7 @@
       </div>
     </div>
 
-    <div id="blackout"><div>YOU BLACKED OUT</div><p>Patched up at Port Solano General. The hospital kept a little cash.</p></div>
+    <div id="blackout"><div id="blackout-title">YOU BLACKED OUT</div><p id="blackout-text">Patched up at Port Solano General. The hospital kept a little cash.</p></div>
 
     <script>
       // Start-up watchdog: explains the problem instead of leaving a blank screen.

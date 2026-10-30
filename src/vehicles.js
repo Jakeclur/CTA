@@ -269,8 +269,10 @@ function buildModel(t, color) {
   add(M.head, S.head, body, false);
   const tail = new THREE.MeshStandardMaterial({ color: '#b00000', emissive: '#ff1010', emissiveIntensity: 0.35 });
   add(M.tail, tail, body, false);
-  if (M.red) add(M.red, S.red, body, false);
-  if (M.blue) add(M.blue, S.blue, body, false);
+  // police lightbars get their own materials so each car can flash independently
+  const siren = M.red ? { red: S.red.clone(), blue: S.blue.clone() } : null;
+  if (M.red) add(M.red, siren.red, body, false);
+  if (M.blue) add(M.blue, siren.blue, body, false);
   if (M.labels) add(M.labels, S.label, body, false);
 
   const door = new THREE.Group();
@@ -290,7 +292,7 @@ function buildModel(t, color) {
     wheels.push({ steerG, spin, front: sz > 0 });
   }
 
-  return { root, body, door, wheels, tail, doorZ: M.doorFront - M.doorLen / 2 };
+  return { root, body, door, wheels, tail, siren, doorZ: M.doorFront - M.doorLen / 2 };
 }
 
 // ------------------------------------------------------------------ physics
@@ -319,6 +321,10 @@ export class Vehicle {
     this.doorOpen = 0;
     this.doorTarget = 0;
     this.driver = null;
+    this.ctrl = null; // controls set by an AI driver each frame
+    this.role = 'parked'; // parked | traffic | police | mission
+    this.siren = false;
+    this.slip = 0;
     this.asleep = true;
     this.still = 0;
     this.braking = false;
@@ -483,7 +489,14 @@ export class Vehicle {
     if (dt > 0) {
       this.doorOpen = damp(this.doorOpen, this.doorTarget, 10, dt);
       m.door.rotation.y = this.doorOpen * 1.15;
-      m.tail.emissiveIntensity = this.braking && this.driver ? 2.2 : 0.35;
+      m.tail.emissiveIntensity = this.braking && (this.driver || this.ctrl) ? 2.2 : 0.35;
+      if (m.siren) {
+        const t = performance.now() / 1000;
+        const on = this.siren;
+        const flash = Math.floor(t * 6) % 2;
+        m.siren.red.emissiveIntensity = on ? (flash ? 3 : 0.2) : 0.6;
+        m.siren.blue.emissiveIntensity = on ? (flash ? 0.2 : 3) : 0.6;
+      }
     }
   }
 }
@@ -497,6 +510,14 @@ export class VehicleManager {
     this.list = [];
     this.rng = makeRng(77);
     this.lastImpact = 0;
+    this.hits = []; // car-to-car hits this frame: { a, b, impact }
+  }
+
+  remove(v) {
+    const i = this.list.indexOf(v);
+    if (i >= 0) this.list.splice(i, 1);
+    this.scene.remove(v.model.root);
+    if (v.model.tail) v.model.tail.dispose();
   }
 
   spawn(type, x, z, heading, color) {
@@ -514,6 +535,9 @@ export class VehicleManager {
       if (v === driven) {
         v.asleep = false;
         impact = Math.max(impact, v.step(dt, ctrl, this.world));
+      } else if (v.ctrl) {
+        v.asleep = false;
+        v.staticImpact = Math.max(v.staticImpact || 0, v.step(dt, v.ctrl, this.world));
       } else if (!v.asleep) {
         v.step(dt, null, this.world);
         if (v.speed < 0.05 && Math.abs(v.angVel) < 0.02) {
@@ -544,6 +568,7 @@ export class VehicleManager {
         const reach = a.reach + b.reach;
         if (dx0 * dx0 + dz0 * dz0 > reach * reach) continue;
         const hit = this.collidePair(a, b);
+        if (hit > 0.5) this.hits.push({ a, b, impact: hit });
         if (hit > 0 && (a === driven || b === driven)) impact = Math.max(impact, hit);
       }
     }

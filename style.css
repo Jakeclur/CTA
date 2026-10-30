@@ -436,3 +436,96 @@ kbd {
   .settings-grid, .controls-grid { grid-template-columns: 1fr; }
   .hud-map { transform: scale(0.75); transform-origin: left bottom; }
 }
+
+/* ------------------------------------------------------------ Stage 2: missions and police */
+
+#wanted { margin-top: 4px; font-size: 26px; letter-spacing: 3px; height: 30px; }
+#wanted .star { color: rgba(255, 255, 255, 0.18); text-shadow: 0 2px 4px rgba(0, 0, 0, 0.7); }
+#wanted .star.on { color: #ffd23f; text-shadow: 0 0 10px rgba(255, 210, 63, 0.6), 0 2px 4px rgba(0, 0, 0, 0.7); }
+#wanted.flash .star.on { animation: star-flash 0.8s steps(2) infinite; }
+@keyframes star-flash { 50% { color: rgba(255, 255, 255, 0.35); text-shadow: none; } }
+#timer[hidden] { display: none; }
+#timer {
+  margin-top: 6px;
+  font-family: var(--display);
+  font-size: 30px;
+  color: #fff;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.7);
+  font-variant-numeric: tabular-nums;
+}
+#timer.low { color: #ff6b6b; }
+
+#phone {
+  position: absolute;
+  right: 28px;
+  top: 150px;
+  width: min(330px, 34vw);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px 16px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+  animation: phone-in 0.4s ease both;
+}
+#phone[hidden] { display: none; }
+.phone-head { display: flex; gap: 8px; align-items: center; font-family: var(--display); letter-spacing: 0.06em; text-transform: uppercase; }
+.phone-icon { color: var(--money); font-size: 18px; }
+#phone p { margin: 8px 0 0; color: #e5e7eb; font-size: 14px; line-height: 1.45; }
+@keyframes phone-in { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: none; } }
+
+#objective {
+  position: absolute;
+  left: 50%;
+  bottom: 74px;
+  transform: translateX(-50%);
+  max-width: 70vw;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.9), 0 0 16px rgba(0, 0, 0, 0.6);
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+#objective[hidden] { display: none; }
+#objective-dist { color: #ffd23f; font-size: 15px; font-variant-numeric: tabular-nums; }
+
+#mission-banner {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 32%;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+#mission-banner.show { opacity: 1; }
+.mb-title {
+  font-family: var(--display);
+  font-size: clamp(40px, 6vw, 72px);
+  letter-spacing: 0.1em;
+  color: #ffd23f;
+  text-shadow: 0 4px 0 rgba(0, 0, 0, 0.6), 0 0 40px rgba(0, 0, 0, 0.5);
+}
+#mission-banner.failed .mb-title { color: #ff5a5a; }
+#mission-banner.intro .mb-title { color: #fff; font-size: clamp(32px, 4.5vw, 54px); }
+.mb-sub { font-family: var(--display); font-size: 26px; letter-spacing: 0.08em; color: #fff; text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8); }
+
+.mission-list { display: grid; gap: 10px; }
+.mission-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 16px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.mission-row b { font-family: var(--display); font-size: 20px; letter-spacing: 0.05em; text-transform: uppercase; }
+.mission-row span { color: var(--muted); font-size: 13px; grid-column: 1; }
+.mission-row .tag { font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--money); }
+.mission-row .tag.locked { color: var(--muted); }
+.mission-row .btn { grid-row: 1 / span 3; grid-column: 2; font-size: 15px; padding: 9px 14px; }
+#bigmap-canvas { cursor: crosshair; }
