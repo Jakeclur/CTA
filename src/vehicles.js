@@ -355,8 +355,8 @@ function buildModel(t, color) {
     parent.add(m);
     return m;
   };
-  add(M.paint, P);
-  add(M.glass, S.glass);
+  const dentable = [add(M.paint, P), add(M.glass, S.glass)];
+  for (const d of dentable) d.userData.shared = d.geometry;
   add(M.trim, S.trimVC);
   const head = add(M.head, S.head, body, false);
   const tail = new THREE.MeshStandardMaterial({ color: '#b00000', emissive: '#ff1010', emissiveIntensity: 0.35 });
@@ -390,7 +390,7 @@ function buildModel(t, color) {
   beams.renderOrder = 2;
   body.add(beams);
 
-  return { root, body, door, wheels, tail, head, siren, beams, doorZ: M.doorFront - M.doorLen / 2 };
+  return { root, body, door, wheels, tail, head, siren, beams, dentable, doorZ: M.doorFront - M.doorLen / 2 };
 }
 
 // ------------------------------------------------------------------ physics
@@ -426,6 +426,13 @@ export class Vehicle {
     this.asleep = true;
     this.still = 0;
     this.braking = false;
+    this.health = 1000; // 0 = wrecked (the engine will not run)
+    this.heave = 0; // suspension: body height offset, pitch and roll springs
+    this.heaveVel = 0;
+    this.pitchVel = 0;
+    this.rollVel = 0;
+    this.scrape = null; // { x, y, z, nx, nz, speed } while grinding along a wall
+    this.hardBrake = false;
     this.radius = this.spec.W / 2;
     const half = this.spec.L / 2 - this.radius;
     this.offsets = [-half, 0, half]; // collision circles along the car
@@ -438,6 +445,69 @@ export class Vehicle {
 
   get speed() {
     return Math.hypot(this.vx, this.vz);
+  }
+
+  // 0 (like new) to 1 (wrecked)
+  get damage() {
+    return 1 - this.health / 1000;
+  }
+
+  // Takes damage from an impact (m/s) at a world point, and dents the body there.
+  hit(impact, px, pz, nx, nz) {
+    if (impact < 3.5) return;
+    const loss = Math.pow(impact - 3.5, 1.35) * 5.5 * (1400 / this.spec.mass);
+    this.health = Math.max(0, this.health - loss);
+    this.dent(px, pz, nx, nz, Math.min(0.2, (impact - 3.5) * 0.018));
+    // a jolt through the suspension
+    this.heaveVel -= Math.min(1.5, impact * 0.05);
+    this.pitchVel += (Math.random() - 0.5) * impact * 0.06;
+  }
+
+  // Pushes the body panels and glass in around a point (the car gets its own
+  // copy of the shared geometry the first time it is dented).
+  dent(px, pz, nx, nz, depth) {
+    if (depth < 0.01) return;
+    const c = Math.cos(this.heading);
+    const s = Math.sin(this.heading);
+    const dx = px - this.x;
+    const dz = pz - this.z;
+    // world -> car space (car faces +z, its left is +x)
+    const lx = dx * c - dz * s;
+    const lz = dx * s + dz * c;
+    const lnx = nx * c - nz * s;
+    const lnz = nx * s + nz * c;
+    const m = this.model;
+    for (const mesh of m.dentable) {
+      if (!mesh.userData.own) {
+        mesh.geometry = mesh.geometry.clone();
+        mesh.userData.own = true;
+      }
+      const pos = mesh.geometry.attributes.position;
+      let moved = false;
+      for (let i = 0; i < pos.count; i++) {
+        const vx = pos.getX(i);
+        const vz = pos.getZ(i);
+        const d = Math.hypot(vx - lx, vz - lz);
+        if (d > 0.9) continue;
+        const k = depth * (1 - d / 0.9) * (1 - d / 0.9);
+        pos.setXYZ(i, vx + lnx * k, pos.getY(i) - k * 0.25, vz + lnz * k);
+        moved = true;
+      }
+      if (moved) {
+        pos.needsUpdate = true;
+        mesh.geometry.computeVertexNormals();
+      }
+    }
+  }
+
+  repair() {
+    this.health = 1000;
+    for (const mesh of this.model.dentable) {
+      if (!mesh.userData.own) continue;
+      mesh.geometry.dispose();
+      mesh.geometry = mesh.userData.shared;
+      mesh.userData.own = false;
+    }
   }
 
   setPose(x, z, heading, y = 0) {
@@ -468,7 +538,11 @@ export class Vehicle {
     const rz = fx;
     let vF = this.vx * fx + this.vz * fz;
     let vR = this.vx * rx + this.vz * rz;
-    const c = ctrl || { throttle: 0, brake: 0, steer: 0, handbrake: false };
+    let c = ctrl || { throttle: 0, brake: 0, steer: 0, handbrake: false };
+    if (this.health <= 0 && c.throttle > 0) c = { ...c, throttle: 0 }; // wrecked: no drive
+    const power = this.health < 400 ? 0.55 + (this.health / 400) * 0.45 : 1;
+    this.hardBrake = c.brake > 0.7;
+    this.handbrakeOn = !!c.handbrake;
 
     const steerLimit = s.steer / (1 + Math.abs(vF) / 22);
     this.steer = damp(this.steer, c.steer * steerLimit, 7, dt);
@@ -479,7 +553,7 @@ export class Vehicle {
       if (vF < -0.5) {
         a += s.brake;
         this.braking = true;
-      } else a += s.accel * c.throttle * Math.max(0, 1 - Math.pow(Math.max(0, vF) / s.maxSpeed, 1.6));
+      } else a += s.accel * power * c.throttle * Math.max(0, 1 - Math.pow(Math.max(0, vF) / (s.maxSpeed * power), 1.6));
     }
     if (c.brake > 0) {
       if (vF > 0.5) {
@@ -521,20 +595,31 @@ export class Vehicle {
     const longA = (vF - this.prevVF) / dt;
     const latA = this.angVel * vF;
     this.prevVF = vF;
-    this.pitch = damp(this.pitch, clamp(-longA * 0.006, -0.06, 0.06), 6, dt);
-    this.roll = damp(this.roll, clamp(-latA * 0.006, -0.07, 0.07), 6, dt);
+    // suspension: springs that lean the body under braking, acceleration and
+    // cornering, overshoot a little and settle
+    const tPitch = clamp(-longA * 0.006, -0.065, 0.065);
+    const tRoll = clamp(-latA * 0.0065, -0.08, 0.08);
+    this.pitchVel += ((tPitch - this.pitch) * 140 - this.pitchVel * 15) * dt;
+    this.rollVel += ((tRoll - this.roll) * 120 - this.rollVel * 13) * dt;
+    this.pitch += this.pitchVel * dt;
+    this.roll += this.rollVel * dt;
     this.forwardSpeed = vF;
     this.slip = Math.abs(vR);
 
     const impact = this.collideStatic(world.colliders);
     const ground = world.heightAt(this.x, this.z);
+    const before = this.y;
     this.y = damp(this.y, ground, 14, dt);
+    // kerbs and bumps kick the body up and it settles on its springs
+    this.heaveVel += ((-this.heave * 160 - this.heaveVel * 12) * dt) - (this.y - before) * 2.5;
+    this.heave = clamp(this.heave + this.heaveVel * dt, -0.12, 0.12);
     return impact;
   }
 
   // Resolve overlap with buildings; returns impact speed (m/s) into the obstacle
   collideStatic(colliders) {
     let impact = 0;
+    this.scrape = null;
     const p = { x: 0, z: 0 };
     const I = (this.spec.L * this.spec.L) / 12 + 0.3;
     for (const o of this.offsets) {
@@ -546,7 +631,14 @@ export class Vehicle {
       if (!hit) continue;
       this.x += p.x - (this.x + fx * o);
       this.z += p.z - (this.z + fz * o);
-      impact = Math.max(impact, this.applyImpulse(hit.nx, hit.nz, fx * o, fz * o, 0.25, I));
+      const tangential = Math.abs(this.vx * -hit.nz + this.vz * hit.nx);
+      const hitSpeed = this.applyImpulse(hit.nx, hit.nz, fx * o, fz * o, 0.25, I);
+      impact = Math.max(impact, hitSpeed);
+      // contact point on the car's side facing the obstacle
+      const px = p.x - hit.nx * this.radius;
+      const pz = p.z - hit.nz * this.radius;
+      this.hit(hitSpeed, px, pz, hit.nx, hit.nz);
+      if (tangential > 4 || hitSpeed > 5) this.scrape = { x: px, y: this.y + 0.4, z: pz, nx: hit.nx, nz: hit.nz, speed: Math.max(tangential, hitSpeed) };
     }
     return impact;
   }
@@ -579,6 +671,7 @@ export class Vehicle {
     m.root.rotation.y = this.heading;
     m.body.rotation.x = this.pitch;
     m.body.rotation.z = this.roll;
+    m.body.position.y = this.heave;
     this.wheelSpin += (this.forwardSpeed / this.spec.wheelR) * dt;
     for (const w of m.wheels) {
       w.spin.rotation.x = this.wheelSpin;
@@ -587,11 +680,11 @@ export class Vehicle {
     if (dt > 0) {
       this.doorOpen = damp(this.doorOpen, this.doorTarget, 10, dt);
       m.door.rotation.y = this.doorOpen * 1.15;
-      const lights = nightLevel > 0.3 && (this.driver || this.ctrl);
-      m.tail.emissiveIntensity = this.braking && (this.driver || this.ctrl) ? 5 : lights ? 1.6 : 0.3;
+      const lights = (nightLevel > 0.3 && (this.driver || this.ctrl)) || this.alarmOn;
+      m.tail.emissiveIntensity = this.alarmOn ? 4 : this.braking && (this.driver || this.ctrl) ? 5 : lights ? 1.6 : 0.3;
       const hm = lights ? sharedMaterials().headOn : sharedMaterials().head;
       if (m.head.material !== hm) m.head.material = hm;
-      m.beams.visible = !!lights;
+      m.beams.visible = !!lights && !this.alarmOn;
       if (m.siren) {
         const t = performance.now() / 1000;
         const on = this.siren;
@@ -772,6 +865,10 @@ export class VehicleManager {
         b.asleep = false;
         a.still = b.still = 0;
         impact = Math.max(impact, -vn);
+        const cx = ax + nx * a.radius;
+        const cz = az + nz * a.radius;
+        a.hit(-vn * ta * 2, cx, cz, -nx, -nz);
+        b.hit(-vn * tb * 2, cx, cz, nx, nz);
       }
     }
     return impact;

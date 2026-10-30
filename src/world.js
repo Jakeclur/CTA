@@ -66,6 +66,7 @@ export async function buildWorld(scene, onProgress) {
     },
     map: { rects: [], pois: [] },
     nightMaterials: [],
+    nightFns: [],
     spots: { parking: [], pickups: [], vending: [] },
     places: { garage: null, stores: [], docks: null },
     builders: {
@@ -126,6 +127,9 @@ export async function buildWorld(scene, onProgress) {
     respawn: ctx.respawn,
     policeRespawn: ctx.policeRespawn,
     places: ctx.places,
+    benches: ctx.props.benches,
+    fountains: ctx.props.fountains,
+    manholes: ctx.props.manholes,
     signals: props.signals,
     update(dt, t) {
       props.update(dt, t);
@@ -133,6 +137,7 @@ export async function buildWorld(scene, onProgress) {
     // 0 = day, 1 = night: windows, shop fronts and street lamps glow
     setNight(k) {
       for (const { m, max, min = 0 } of ctx.nightMaterials) m.emissiveIntensity = Math.max(min, k * max);
+      for (const f of ctx.nightFns) f(k);
       props.setNight(k);
     },
   };
@@ -744,7 +749,7 @@ function buildRoads(ctx) {
     }
 
   // curb-side parking (cars park on the left, facing the direction of traffic)
-  for (let k = 0; k < 16; k++) {
+  for (let k = 0; k < 44; k++) {
     const i = rng.int(1, GRID - 1);
     const j = rng.int(0, GRID - 1);
     const alongZ = rng.chance(0.5);
@@ -1124,9 +1129,57 @@ function buildBuildingMeshes(ctx, tex, group) {
   }), tex.store.tintMask);
   ctx.nightMaterials.push({ m: storeMat, max: 0.75, min: 0.06 });
   add(store.mesh(storeMat, { castShadow: true }));
+  add(windowSpill(ctx));
   add(roof.mesh(new THREE.MeshStandardMaterial({ map: tex.roof, vertexColors: true, roughness: 1 })));
   add(tiles.mesh(new THREE.MeshStandardMaterial({ map: tex.tiles, vertexColors: true, roughness: 0.85, side: THREE.DoubleSide }), { castShadow: true }));
   add(trim.mesh(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }), { castShadow: true }));
+}
+
+// After dark, lit shop windows throw warm light across the pavement in front
+// of them: a strip on each side of every shop front, one draw call for the city.
+function windowSpill(ctx) {
+  const pos = [];
+  const uv = [];
+  const depth = 4.5;
+  const bay = 4.5;
+  const y = CURB_H + 0.025;
+  for (const b of ctx.buildings) {
+    if (!b.storefront) continue;
+    // each side: a corner on the wall, the direction along it and the outward normal
+    const sides = [
+      [b.x0, b.z1, 1, 0, 0, 1, b.x1 - b.x0],
+      [b.x1, b.z0, -1, 0, 0, -1, b.x1 - b.x0],
+      [b.x1, b.z1, 0, -1, 1, 0, b.z1 - b.z0],
+      [b.x0, b.z0, 0, 1, -1, 0, b.z1 - b.z0],
+    ];
+    for (const [x, z, ax, az, nx, nz, len] of sides) {
+      const u1 = len / bay;
+      const q = [
+        [x, z, 0, 1], [x + ax * len, z + az * len, u1, 1],
+        [x + ax * len + nx * depth, z + az * len + nz * depth, u1, 0], [x + nx * depth, z + nz * depth, 0, 0],
+      ];
+      for (const k of [0, 2, 1, 0, 3, 2]) {
+        pos.push(q[k][0], y, q[k][1]);
+        uv.push(q[k][2], q[k][3]);
+      }
+    }
+  }
+  if (!pos.length) return null;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  const mat = new THREE.MeshBasicMaterial({
+    map: TX.makeWindowSpill(), color: '#ffcf8f', transparent: true, opacity: 0, depthWrite: false,
+    blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.visible = false;
+  ctx.nightFns.push((k) => {
+    mesh.visible = k > 0.02;
+    mat.opacity = k * 0.8;
+  });
+  return mesh;
 }
 
 // ------------------------------------------------------------------ queries

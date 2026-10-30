@@ -192,6 +192,19 @@ export class UI {
     this.healthEl.classList.toggle('low', pct < 30);
   }
 
+  // Condition of the car being driven (0 to 1), or null to hide the bar.
+  setCarHealth(k) {
+    const bar = $('carbar');
+    if (k === null) {
+      if (!bar.hidden) bar.hidden = true;
+      return;
+    }
+    bar.hidden = false;
+    const fill = $('car-fill');
+    fill.style.width = `${Math.round(k * 100)}%`;
+    fill.classList.toggle('low', k < 0.35);
+  }
+
   setPrompt(html) {
     if (html === this.lastPrompt) return;
     this.lastPrompt = html;

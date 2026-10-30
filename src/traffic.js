@@ -84,6 +84,11 @@ export class Traffic {
     c.stopIdx = c.path.length - 1;
     c.stopNode = [ni, nj];
     c.axis = DIRS[d].fx !== 0 ? 'ew' : 'ns';
+    c.inDir = d;
+    // driving on the left, a right turn cuts across the oncoming lanes
+    const [lx0, lz0] = leftOf(d);
+    c.turnRight = lx0 * DIRS[d2].fx + lz0 * DIRS[d2].fz < -0.5;
+    c.giveT = 0;
     // through the intersection: a curve for turns
     const [x2, z2] = this.lanePoint(ni, nj, d2, c.lane, STOP_BACK - 1);
     if (d2 !== d) {
@@ -240,6 +245,11 @@ export class Traffic {
         speed = Math.min(speed, Math.sqrt(Math.max(0, distStop - 1.5) * 5));
       }
     }
+    // turning right on green: wait at the line for a gap in oncoming traffic
+    if (c.turnRight && distStop < 25 && sig[c.axis] === 2 && c.giveT < 9 && this.oncoming(c)) {
+      speed = Math.min(speed, Math.sqrt(Math.max(0, distStop - 1.5) * 5));
+      if (distStop < 4) c.giveT += dt;
+    }
     const gap = this.gapAhead(c);
     if (gap < 40) speed = Math.min(speed, Math.max(0, (gap - 3.5) * 0.9));
     if (speed < 0.6) {
@@ -250,6 +260,26 @@ export class Traffic {
     }
     c.waitT = 0;
     v.ctrl = c.ai.steerTo(dt, tx, tz, speed);
+  }
+
+  // Is anything coming the other way towards the junction this car turns across?
+  oncoming(c) {
+    const [ni, nj] = c.stopNode;
+    const nx = nodeX(ni);
+    const nz = nodeZ(nj);
+    const fx = DIRS[c.inDir].fx;
+    const fz = DIRS[c.inDir].fz;
+    for (const o of this.g.vehicles.list) {
+      if (o === c.v) continue;
+      const dx = o.x - nx;
+      const dz = o.z - nz;
+      const ahead = dx * fx + dz * fz; // beyond the junction, on the far side
+      if (ahead < -2 || ahead > 45) continue;
+      if (Math.abs(dx * fz - dz * fx) > ROAD_HALF) continue; // on this road
+      const closing = -(o.vx * fx + o.vz * fz); // speed towards the junction
+      if (closing > 1.5 && ahead / closing < 4.5) return true;
+    }
+    return false;
   }
 
   // Distance to the nearest car, pedestrian or player in our lane ahead.

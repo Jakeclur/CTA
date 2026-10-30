@@ -23,6 +23,7 @@ import { setVehicleNight } from './vehicles.js';
 import { Shops } from './shop.js';
 import { PostFX } from './post.js';
 import { PerfMonitor, frameStats } from './perf.js';
+import { Ambient } from './ambient.js';
 import { loadSettings, saveSettings, loadProgress, saveProgress, clearProgress, hasProgress, DEFAULT_PROGRESS } from './save.js';
 import { ROAD_LINES, ROAD_HALF, CITY_NAME } from './config.js';
 
@@ -138,6 +139,7 @@ class Game {
     this.traffic = new Traffic(this);
     this.peds = new Pedestrians(this);
     this.effects = new Effects(this.scene);
+    this.ambient = new Ambient(this);
     // one headlight beam for the player's car; always in the scene so turning it
     // on at dusk does not force every material to recompile
     this.headlight = new THREE.SpotLight('#fff3d6', 0, 60, 0.5, 0.6, 1.2);
@@ -520,6 +522,16 @@ class Game {
           const d = v.doorPoint(new THREE.Vector3(), 1.4);
           this.peds.spawnFleeing(d.x, d.z, v.x, v.z);
           this.police.crime('Carjacking', 1);
+        } else if (v.role === 'parked' && v.ownedId === undefined && !v.alarmChecked) {
+          // some parked cars have an alarm: it blares and flashes the lights, and
+          // police close by will come after you
+          v.alarmChecked = true;
+          if (Math.random() < 0.35) {
+            v.alarmT = 14;
+            for (const q of this.peds.list) if (Math.hypot(q.pos.x - v.x, q.pos.z - v.z) < 18) this.peds.flee(q, v.x, v.z, 2);
+            if (this.police.units.some((u) => Math.hypot(u.v.x - v.x, u.v.z - v.z) < 45)) this.police.crime('Car theft', 1);
+            this.ui.notify('Car alarm', 'Drive off quickly before someone calls it in.', 'warn');
+          }
         }
         this.audio.play('door');
         v.ctrl = null;
@@ -574,6 +586,7 @@ class Game {
 
     this.updateTimeOfDay(dt);
     this.world.update(dt, this.time);
+    if (this.state !== 'paused' && this.state !== 'map') this.ambient.update(dt, this.time);
     this.effects.update(this.state === 'playing' || this.state === 'menu' || this.state === 'blackout' ? dt : 0);
     const focus = this.state === 'menu' ? MENU_FOCUS : this.player.vehicle ? this.player.vehicle.model.root.position : this.player.pos;
     this.env.update(dt, this.time, this.camera, focus);
@@ -948,6 +961,36 @@ class Game {
       if (v.asleep || v.speed < 2) continue;
       if (Math.abs(v.x - pos.x) > 90 || Math.abs(v.z - pos.z) > 90) continue;
       this.effects.tyreSmoke(v, dt);
+      this.effects.skids.track(v, this.world.heightAt);
+      // metal grinding along walls throws sparks
+      if (v.scrape && Math.random() < Math.min(1, v.scrape.speed / 12)) {
+        const sc = v.scrape;
+        const len = Math.hypot(v.vx, v.vz) || 1;
+        this.effects.sparks.emit(sc.x, sc.y, sc.z, v.vx / len, v.vz / len, Math.min(8, 1 + Math.floor(sc.speed / 3)));
+      }
+    }
+    // car alarms: beeping and flashing lights until they time out
+    for (const v of this.vehicles.list) {
+      if (!(v.alarmT > 0)) continue;
+      v.alarmT -= dt;
+      const on = Math.floor(v.alarmT * 2.5) % 2 === 0;
+      if (on !== v.alarmOn) {
+        v.alarmOn = on;
+        if (on && Math.hypot(v.x - pos.x, v.z - pos.z) < 80) this.audio.play('alarm', 1 - Math.hypot(v.x - pos.x, v.z - pos.z) / 90);
+      }
+      if (v.alarmT <= 0) v.alarmOn = false;
+    }
+    // damaged cars smoke from the bonnet, even when parked
+    for (const v of this.vehicles.list) {
+      if (v.health < 400 && Math.abs(v.x - pos.x) < 90 && Math.abs(v.z - pos.z) < 90) this.effects.engineSmoke(v, dt);
+    }
+    for (const h of this.vehicles.hits) {
+      if (h.impact > 5 && Math.abs(h.a.x - pos.x) < 80 && Math.abs(h.a.z - pos.z) < 80) {
+        const x = (h.a.x + h.b.x) / 2;
+        const z = (h.a.z + h.b.z) / 2;
+        const ang = Math.random() * Math.PI * 2;
+        this.effects.sparks.emit(x, h.a.y + 0.5, z, Math.cos(ang), Math.sin(ang), Math.min(14, Math.floor(h.impact)));
+      }
     }
     this.vehicles.hits.length = 0;
     // headlight beam
@@ -967,6 +1010,8 @@ class Game {
       this.audio.play('crash', Math.min(1, impact / 15));
       if (impact > 6) this.effects.crash(pv.x, pv.y, pv.z, impact);
     }
+    if (pv) this.ui.setCarHealth(pv.health / 1000);
+    else this.ui.setCarHealth(null);
     // footsteps
     if (!pv && p.stepCount !== this.lastStep) {
       this.lastStep = p.stepCount;
@@ -990,6 +1035,9 @@ class Game {
       siren,
       beach: Math.max(0, Math.min(1, (pos.z - 280) / 80)),
       horn,
+      area: this.world.areaAt(pos.x, pos.z),
+      night: this.nightK || 0,
+      dt: live ? dt : 0,
     });
   }
 

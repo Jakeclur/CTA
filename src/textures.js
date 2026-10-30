@@ -907,3 +907,88 @@ export function makeLabelTexture(text, fg = '#ffffff', bg = 'rgba(0,0,0,0)') {
   g.fillText(text, 128, 34);
   return toTexture(c, { repeat: false });
 }
+
+// ---------------------------------------------------------------- foliage
+
+// A clump of leaves with transparent gaps, for tree crowns. Drawn in light
+// greens so each tree's instance colour can tint it.
+export function makeLeafCluster() {
+  const S = 256;
+  const rng = makeRng(31);
+  const [c, g] = canvas(S, S);
+  g.clearRect(0, 0, S, S);
+  for (let i = 0; i < 260; i++) {
+    // leaves bunch towards the middle of the card
+    const a = rng() * Math.PI * 2;
+    const r = Math.sqrt(rng()) * S * 0.42;
+    const x = S / 2 + Math.cos(a) * r;
+    const y = S / 2 + Math.sin(a) * r;
+    const l = 150 + rng() * 80;
+    g.save();
+    g.translate(x, y);
+    g.rotate(rng() * Math.PI * 2);
+    g.fillStyle = `rgb(${l * 0.78},${l},${l * 0.62})`;
+    g.beginPath();
+    g.ellipse(0, 0, 5 + rng() * 4, 2.2 + rng() * 1.5, 0, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = `rgba(80,100,60,0.5)`;
+    g.lineWidth = 0.6;
+    g.beginPath();
+    g.moveTo(-5, 0);
+    g.lineTo(5, 0);
+    g.stroke();
+    g.restore();
+  }
+  const t = toTexture(c, { repeat: false });
+  t.premultiplyAlpha = false;
+  return t;
+}
+
+// One palm frond: a central rib with leaflets fanning out on both sides.
+export function makePalmFrond() {
+  const W = 128;
+  const H = 512;
+  const rng = makeRng(32);
+  const [c, g] = canvas(W, H);
+  g.clearRect(0, 0, W, H);
+  for (let y = 8; y < H - 4; y += 5) {
+    const t = y / H;
+    const len = (Math.sin(t * Math.PI) * 0.85 + 0.15) * (W / 2 - 4);
+    const l = 140 + rng() * 70;
+    g.strokeStyle = `rgb(${l * 0.8},${l},${l * 0.6})`;
+    g.lineWidth = 2.4;
+    for (const side of [-1, 1]) {
+      g.beginPath();
+      g.moveTo(W / 2, y);
+      g.quadraticCurveTo(W / 2 + side * len * 0.5, y + 4, W / 2 + side * len, y + 14 + rng() * 6);
+      g.stroke();
+    }
+  }
+  g.fillStyle = '#c8c09a';
+  g.fillRect(W / 2 - 2, 0, 4, H);
+  return toTexture(c, { repeat: false });
+}
+
+// Light falling out of lit shop windows onto the pavement: one window bay
+// across (u), bright at the wall and fading out over the paving (v = 1 at the wall).
+export function makeWindowSpill() {
+  const [c, ctx] = canvas(128, 64);
+  const img = ctx.createImageData(128, 64);
+  for (let y = 0; y < 64; y++) {
+    const v = y / 63; // 0 at the far edge, 1 at the wall
+    const fall = Math.pow(v, 2.2);
+    for (let x = 0; x < 128; x++) {
+      const u = x / 127;
+      // the window glass spans most of the bay; the pillar between bays casts a soft gap
+      const across = Math.min(1, Math.max(0, Math.min(u - 0.06, 0.94 - u) / 0.12 + (1 - v) * 0.5));
+      const k = Math.round(255 * fall * (0.25 + 0.75 * across));
+      const i = (y * 128 + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = k;
+      img.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const t = toTexture(c);
+  t.wrapT = THREE.ClampToEdgeWrapping;
+  return t;
+}

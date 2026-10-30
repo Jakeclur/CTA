@@ -55,6 +55,8 @@ export class Missions {
     this.active = null;
     this.autoDone = new Set();
     this.objective = new Marker(game.scene, '#ffd23f', 1.6);
+    this.nextCheckpoint = new Marker(game.scene, '#ffd23f', 1.2); // the one after the current checkpoint
+    this.retry = null; // { def, snap, until } offered after a failure
     this.starts = defs.filter((d) => d.start).map((d) => ({ def: d, marker: new Marker(game.scene, '#3fd2ff', 1.2) }));
     this.npcs = new Map();
     this.playTime = 0;
@@ -82,7 +84,8 @@ export class Missions {
       g.ui.notify('Lose the police first', 'Missions can only start with no wanted level.', 'warn');
       return false;
     }
-    this.active = { def, idx: -1, vehicles: {}, timer: null, stepT: 0 };
+    this.active = { def, idx: -1, vehicles: {}, timer: null, stepT: 0, began: this.playTime, snap: null, cp: 0 };
+    this.retry = null;
     g.ui.missionTitle(def.title);
     g.audio?.play('mission');
     this.next();
@@ -91,24 +94,94 @@ export class Missions {
 
   abandon() {
     if (!this.active) return;
-    this.fail('Mission abandoned');
+    this.fail('Mission abandoned', false);
   }
 
-  fail(reason) {
+  fail(reason, canRetry = true) {
     const a = this.active;
     if (!a) return;
     this.cleanup();
     this.g.ui.missionResult(false, a.def.title, reason);
     this.g.audio?.play('fail');
+    if (canRetry && a.snap) {
+      this.retry = { def: a.def, snap: a.snap, began: a.began, until: this.playTime + 15 };
+      setTimeout(() => {
+        if (this.retry) this.g.ui.notify('Checkpoint', 'Press R in the next few seconds to retry from the last checkpoint.', '');
+      }, 2800);
+    }
+  }
+
+  // Remember everything needed to restart from this step: where the player is,
+  // what they are driving and the mission's cars.
+  saveCheckpoint() {
+    const a = this.active;
+    const g = this.g;
+    const pv = g.player.vehicle;
+    const pos = g.playerPosition();
+    const cars = {};
+    for (const [id, v] of Object.entries(a.vehicles)) {
+      cars[id] = { type: v.type, color: v.color, x: v.x, z: v.z, heading: v.heading, driven: v === pv };
+    }
+    a.snap = {
+      idx: a.idx, x: pos.x, z: pos.z, heading: pv ? pv.heading : g.player.facing, timer: a.timer,
+      car: pv && !Object.values(a.vehicles).includes(pv) ? { type: pv.type, color: pv.color } : null,
+      cars, cp: a.cp,
+    };
+  }
+
+  retryFromCheckpoint() {
+    const r = this.retry;
+    if (!r || this.active) return;
+    const g = this.g;
+    this.retry = null;
+    const s = r.snap;
+    g.police.reset();
+    g.leaveVehicleInstant();
+    const vehicles = {};
+    let drive = null;
+    for (const [id, c] of Object.entries(s.cars)) {
+      // replace the mission car with a fresh one where it was
+      const old = g.vehicles.list.find((v) => Math.hypot(v.x - c.x, v.z - c.z) < 3);
+      if (old) g.vehicles.remove(old);
+      const v = g.vehicles.spawn(c.type, c.driven ? s.x : c.x, c.driven ? s.z : c.z, c.driven ? s.heading : c.heading, c.color);
+      v.role = 'mission';
+      vehicles[id] = v;
+      if (c.driven) drive = v;
+    }
+    if (!drive && s.car) {
+      const old = g.vehicles.list.find((v) => Math.hypot(v.x - s.x, v.z - s.z) < 3);
+      if (old) g.vehicles.remove(old);
+      drive = g.vehicles.spawn(s.car.type, s.x, s.z, s.heading, s.car.color);
+    }
+    if (drive) {
+      g.player.vehicle = drive;
+      drive.driver = g.player;
+      drive.asleep = false;
+      g.player.setVisible(false);
+    } else {
+      g.player.setPosition(s.x, g.world.heightAt(s.x, s.z), s.z, s.heading);
+      g.player.setVisible(true);
+    }
+    g.rig.snap(new THREE.Vector3(s.x, g.world.heightAt(s.x, s.z) + 1.7, s.z), s.heading);
+    this.active = { def: r.def, idx: s.idx - 1, vehicles, timer: s.timer, stepT: 0, began: r.began, snap: s, cp: s.cp };
+    g.ui.missionTitle(r.def.title);
+    g.audio?.play('mission');
+    this.next();
   }
 
   pass() {
     const a = this.active;
     const reward = a.step.cash || 0;
+    // finishing inside the par time earns a bonus
+    const secs = this.playTime - a.began;
+    const bonus = a.step.par && secs <= a.step.par ? a.step.bonus || 0 : 0;
     this.cleanup();
     this.completed.add(a.def.id);
-    this.g.cash += reward;
-    this.g.ui.missionResult(true, a.def.title, reward ? `+$${reward.toLocaleString('en-US')}` : '');
+    this.g.cash += reward + bonus;
+    this.g.stats.missionTime = (this.g.stats.missionTime || 0) + secs;
+    const time = `${Math.floor(secs / 60)}:${String(Math.floor(secs % 60)).padStart(2, '0')}`;
+    const money = reward ? `+$${reward.toLocaleString('en-US')}` : '';
+    this.g.ui.missionResult(true, a.def.title, [money, bonus ? `speed bonus +$${bonus}` : '', `time ${time}`].filter(Boolean).join(' · '));
     this.g.audio?.play('passed');
     this.g.saveNow();
   }
@@ -121,6 +194,7 @@ export class Missions {
       this.npcs.delete(id);
     }
     this.objective.hide();
+    this.nextCheckpoint.hide();
     this.active = null;
     this.navTarget = null;
     this.g.ui.setObjective(null);
@@ -135,6 +209,8 @@ export class Missions {
     if (!a.step) return;
     const s = a.step;
     const g = this.g;
+    if (s.checkpoint) this.saveCheckpoint();
+    if (s.type === 'checkpoints' && a.cp === undefined) a.cp = 0;
     switch (s.type) {
       case 'message':
         g.ui.phone(s.from, s.text);
@@ -210,6 +286,11 @@ export class Missions {
       if (Math.hypot(pos.x - s.def.start.x, pos.z - s.def.start.z) < 2.2 && !g.player.vehicle) this.start(s.def);
     }
 
+    if (this.retry) {
+      if (this.playTime > this.retry.until) this.retry = null;
+      else if (g.state === 'playing' && !g.transition && g.input.hit('KeyR')) this.retryFromCheckpoint();
+    }
+
     const a = this.active;
     if (!a || !a.step) return;
     a.stepT += dt;
@@ -255,6 +336,33 @@ export class Missions {
       }
     } else if (s.type === 'loseWanted') {
       done = g.police.level === 0;
+    } else if (s.type === 'checkpoints') {
+      // drive through each checkpoint in order; the next one shows faintly
+      const v = s.vehicle ? a.vehicles[s.vehicle] : null;
+      if (v && pv !== v) {
+        label = `Get back in the ${v.name}`;
+        target = { x: v.x, z: v.z, vehicle: v };
+      } else if (!pv) {
+        label = 'Get a vehicle';
+      } else {
+        const [cx, cz] = s.points[a.cp];
+        target = { x: cx, z: cz, big: true };
+        label = `${s.label} (${a.cp + 1}/${s.points.length})`;
+        if (Math.hypot(pos.x - cx, pos.z - cz) < (s.r || 7)) {
+          a.cp++;
+          g.audio?.play('checkpoint');
+          if (a.cp >= s.points.length) {
+            a.cp = 0;
+            done = true;
+          } else {
+            this.saveCheckpoint();
+          }
+        }
+      }
+      const after = s.points[a.cp + 1];
+      if (after && target && !target.vehicle) this.nextCheckpoint.show(after[0], g.world.heightAt(after[0], after[1]), after[1], 1.4);
+      else this.nextCheckpoint.hide();
+      this.nextCheckpoint.update(t);
     }
 
     // objective marker and HUD
