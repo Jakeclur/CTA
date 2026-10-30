@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CTA: Port Solano</title>
+    <meta name="description" content="An original open-world driving and exploration game that runs in your browser." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Inter:wght@400;600;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="style.css" />
+    <!-- Three.js is bundled in /lib so the game works offline and on networks that block CDNs -->
+    <script type="importmap">
+      { "imports": { "three": "./lib/three.module.min.js" } }
+    </script>
+  </head>
+  <body>
+    <canvas id="game" tabindex="0" aria-label="Game view"></canvas>
+
+    <!-- Loading -->
+    <section id="loading" class="screen show">
+      <div class="brand">
+        <div class="logo">CTA</div>
+        <div class="tagline">PORT SOLANO</div>
+      </div>
+      <div class="loadbar"><div id="loadfill"></div></div>
+      <div id="loadtext">Starting engine…</div>
+      <div id="loaderror" class="error" hidden></div>
+    </section>
+
+    <!-- Main menu (the city flies by behind it) -->
+    <section id="menu" class="screen">
+      <div class="menu-col">
+        <div class="brand small">
+          <div class="logo">CTA</div>
+          <div class="tagline">PORT SOLANO</div>
+        </div>
+        <nav class="menu-buttons">
+          <button id="btn-continue" class="btn primary" hidden>Continue</button>
+          <button id="btn-play" class="btn primary">Play</button>
+          <button id="btn-settings" class="btn">Settings</button>
+          <button id="btn-controls" class="btn">Controls</button>
+        </nav>
+        <p class="menu-note">Stage 1 prototype · progress saves in this browser</p>
+      </div>
+    </section>
+
+    <!-- Pause -->
+    <section id="pause" class="screen dim">
+      <div class="panel narrow">
+        <h2>Paused</h2>
+        <nav class="menu-buttons">
+          <button id="btn-resume" class="btn primary">Resume</button>
+          <button id="btn-map" class="btn">Map</button>
+          <button id="btn-psettings" class="btn">Settings</button>
+          <button id="btn-pcontrols" class="btn">Controls</button>
+          <button id="btn-quit" class="btn ghost">Save &amp; quit to menu</button>
+        </nav>
+      </div>
+    </section>
+
+    <!-- Settings -->
+    <section id="settings" class="screen dim">
+      <div class="panel">
+        <h2>Settings</h2>
+        <form id="settings-form" class="settings-grid" onsubmit="return false">
+          <label for="set-quality">Graphics quality</label>
+          <select id="set-quality">
+            <option value="low">Low: no shadows, best for older laptops</option>
+            <option value="medium">Medium</option>
+            <option value="high">High: sharper shadows and image</option>
+          </select>
+
+          <label for="set-draw">Draw distance <output id="out-draw"></output></label>
+          <input id="set-draw" type="range" min="400" max="1300" step="50" />
+
+          <label for="set-fov">Field of view <output id="out-fov"></output></label>
+          <input id="set-fov" type="range" min="55" max="95" step="1" />
+
+          <label for="set-sens">Mouse sensitivity <output id="out-sens"></output></label>
+          <input id="set-sens" type="range" min="0.2" max="3" step="0.1" />
+
+          <label for="set-invert">Invert mouse Y</label>
+          <input id="set-invert" type="checkbox" class="toggle" />
+
+          <label for="set-autocenter">Camera re-centres behind car</label>
+          <input id="set-autocenter" type="checkbox" class="toggle" />
+
+          <label for="set-fps">Show FPS counter</label>
+          <input id="set-fps" type="checkbox" class="toggle" />
+        </form>
+        <p class="hint-text">Anti-aliasing changes with quality after a page reload.</p>
+        <div class="row">
+          <button id="btn-reset" class="btn ghost danger">Reset progress</button>
+          <button id="btn-settings-back" class="btn primary">Back</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Controls -->
+    <section id="controls" class="screen dim">
+      <div class="panel">
+        <h2>Controls</h2>
+        <div class="controls-grid">
+          <h3>On foot</h3>
+          <h3>Driving</h3>
+          <ul>
+            <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move</li>
+            <li><kbd>Mouse</kbd> Look around</li>
+            <li><kbd>Shift</kbd> Sprint</li>
+            <li><kbd>Space</kbd> Jump</li>
+            <li><kbd>E</kbd> Enter vehicle</li>
+            <li><kbd>F</kbd> Use (vending machines)</li>
+          </ul>
+          <ul>
+            <li><kbd>W</kbd> Accelerate</li>
+            <li><kbd>S</kbd> Brake / reverse</li>
+            <li><kbd>A</kbd><kbd>D</kbd> Steer</li>
+            <li><kbd>Space</kbd> Handbrake</li>
+            <li><kbd>E</kbd> Exit vehicle</li>
+            <li><kbd>C</kbd> Reset camera behind car</li>
+          </ul>
+        </div>
+        <p class="hint-text"><kbd>M</kbd> Map · <kbd>Esc</kbd> Pause · Click the game to capture the mouse</p>
+        <div class="row end"><button id="btn-controls-back" class="btn primary">Back</button></div>
+      </div>
+    </section>
+
+    <!-- Full-screen map -->
+    <section id="bigmap" class="screen dim">
+      <canvas id="bigmap-canvas"></canvas>
+      <div class="bigmap-legend">
+        <span><i style="background:#3b82f6"></i>Police</span>
+        <span><i style="background:#ef4444"></i>Hospital</span>
+        <span><i style="background:#f97316"></i>Fuel</span>
+        <span><i style="background:#eab308"></i>Garage</span>
+        <span><i style="background:#64748b"></i>Parking</span>
+        <span class="muted">Press M or Esc to close</span>
+      </div>
+    </section>
+
+    <!-- In-game HUD -->
+    <div id="hud" hidden>
+      <div id="fps" hidden>-- fps</div>
+      <div id="notifications"></div>
+      <div class="hud-topright">
+        <div id="cash">$0</div>
+      </div>
+      <div class="hud-map">
+        <canvas id="minimap" width="440" height="440"></canvas>
+        <div class="healthbar"><div id="health-fill"></div></div>
+        <div id="street"></div>
+      </div>
+      <div id="area-banner"></div>
+      <div id="prompt" hidden></div>
+      <div id="look-hint" hidden>Click to look around with the mouse</div>
+      <div id="speedo" hidden>
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="track" cx="60" cy="60" r="50" />
+          <circle id="speedo-arc" class="arc" cx="60" cy="60" r="50" />
+        </svg>
+        <div class="speedo-read">
+          <div id="speed-value">0</div>
+          <div class="speed-unit">km/h</div>
+        </div>
+        <div id="vehicle-name"></div>
+      </div>
+    </div>
+
+    <div id="blackout"><div>YOU BLACKED OUT</div><p>Patched up at Port Solano General. The hospital kept a little cash.</p></div>
+
+    <script>
+      // Start-up watchdog: explains the problem instead of leaving a blank screen.
+      (function () {
+        function fail(msg) {
+          var el = document.getElementById('loaderror');
+          if (!el || window.__ctaReady) return;
+          el.hidden = false;
+          el.textContent = msg;
+        }
+        window.__ctaFail = fail;
+        window.addEventListener('error', function (e) {
+          fail('Something went wrong while loading: ' + (e.message || 'unknown error') + '. Try refreshing the page.');
+        });
+        if (!HTMLScriptElement.supports || !HTMLScriptElement.supports('importmap')) {
+          fail('This browser is too old to run the game. Please use a recent version of Chrome, Edge or Firefox.');
+        }
+        setTimeout(function () {
+          if (!window.__ctaStarted)
+            fail('The game has not started. If you opened index.html directly from your files, run it through a local web server instead (see README).');
+        }, 12000);
+      })();
+    </script>
+    <script type="module" src="src/main.js" onerror="window.__ctaFail && window.__ctaFail('Could not load the game scripts. Check that the src folder was uploaded.')"></script>
+  </body>
+</html>
