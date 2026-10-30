@@ -98,7 +98,14 @@ export class UI {
     const inv = $('set-invert');
     const auto = $('set-autocenter');
     const fps = $('set-fps');
+    const time = $('set-time');
+    const traffic = $('set-traffic');
+    const vol = $('set-volume');
     const sync = () => {
+      time.value = settings.timeMode;
+      traffic.value = settings.traffic;
+      vol.value = settings.volume;
+      $('out-volume').textContent = `${Math.round(settings.volume * 100)}%`;
       q.value = settings.quality;
       draw.value = settings.drawDistance;
       fov.value = settings.fov;
@@ -118,10 +125,13 @@ export class UI {
       settings.invertY = inv.checked;
       settings.autoCenter = auto.checked;
       settings.showFps = fps.checked;
+      settings.timeMode = time.value;
+      settings.traffic = traffic.value;
+      settings.volume = Number(vol.value);
       sync();
       onChange(settings);
     };
-    for (const el of [q, draw, fov, sens, inv, auto, fps]) el.addEventListener('input', read);
+    for (const el of [q, draw, fov, sens, inv, auto, fps, time, traffic, vol]) el.addEventListener('input', read);
     sync();
   }
 

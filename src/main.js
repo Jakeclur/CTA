@@ -15,6 +15,11 @@ import { Police } from './police.js';
 import { Missions } from './missions.js';
 import { MISSIONS } from './missionData.js';
 import { gpsRoute } from './roads.js';
+import { Traffic } from './traffic.js';
+import { Pedestrians } from './pedestrians.js';
+import { Audio } from './audio.js';
+import { Effects } from './effects.js';
+import { setVehicleNight } from './vehicles.js';
 import { loadSettings, saveSettings, loadProgress, saveProgress, clearProgress, hasProgress, DEFAULT_PROGRESS } from './save.js';
 import { ROAD_LINES, ROAD_HALF, CITY_NAME } from './config.js';
 
@@ -50,6 +55,10 @@ class Game {
     this.nav = null; // what the GPS is currently guiding to
     this.navT = 0;
     this._pp = new THREE.Vector3();
+    this.clock = 9; // hours
+    this.audio = new Audio();
+    this.crashSoundT = 0;
+    this.lastStep = 0;
   }
 
   async init() {
@@ -106,6 +115,13 @@ class Game {
     this.police = new Police(this);
     this.police.onLevelChange = (level, before, reason) => this.onWantedChange(level, before, reason);
     this.missions = new Missions(this, MISSIONS);
+    this.traffic = new Traffic(this);
+    this.peds = new Pedestrians(this);
+    this.effects = new Effects(this.scene);
+    // one headlight beam for the player's car; always in the scene so turning it
+    // on at dusk does not force every material to recompile
+    this.headlight = new THREE.SpotLight('#fff3d6', 0, 60, 0.5, 0.6, 1.2);
+    this.scene.add(this.headlight, this.headlight.target);
     this.bindBigMap();
 
     this.ui.bindSettings(this.settings, (s) => this.applySettings(s));
@@ -128,6 +144,7 @@ class Game {
     this.renderer.setSize(innerWidth, innerHeight, false);
     this.camera.aspect = innerWidth / innerHeight;
     this.camera.updateProjectionMatrix();
+    if (this.effects) this.effects.setViewport(this.renderer.domElement.height, this.settings.fov);
     if (this.state === 'map') this.drawBigMap();
   }
 
@@ -148,16 +165,24 @@ class Game {
     this.rig.invertY = s.invertY;
     this.rig.autoCenter = s.autoCenter;
     if (!s.showFps) this.ui.setFps(false);
+    this.traffic.setDensity(s.traffic);
+    this.peds.setDensity(s.traffic);
+    this.audio.setVolume(s.volume);
+    this.effects.setViewport(this.renderer.domElement.height, s.fov);
     saveSettings(s);
   }
 
   wireUi() {
     const ui = this.ui;
     ui.on('play', () => {
+      this.audio.unlock();
       clearProgress();
       this.startGame(loadProgress(), true);
     });
-    ui.on('continue', () => this.startGame(loadProgress(), false));
+    ui.on('continue', () => {
+      this.audio.unlock();
+      this.startGame(loadProgress(), false);
+    });
     ui.on('resume', () => this.resume());
     ui.on('map', () => this.openMap('paused'));
     ui.on('quit', () => {
@@ -209,6 +234,9 @@ class Game {
     if (this.player.vehicle) this.leaveVehicleInstant();
     if (this.missions.active) this.missions.cleanup();
     this.police.reset();
+    this.traffic.clear();
+    this.peds.clear();
+    this.audio.setActive(false);
     this.waypoint = null;
     this.state = 'menu';
     this.input.enabled = false;
@@ -225,6 +253,10 @@ class Game {
     this.player.health = progress.health > 0 ? progress.health : 100;
     this.stats = { ...progress.stats };
     this.missions.load(progress.missions);
+    this.clock = progress.clock ?? 9;
+    this.traffic.clear();
+    this.peds.clear();
+    this.audio.setActive(true);
     this.missions.playTime = 0;
     this.missions.autoDone.clear();
     this.police.reset();
@@ -266,11 +298,13 @@ class Game {
     this.input.reset();
     this.input.releaseLock();
     this.ui.show('pause');
+    this.audio.setActive(false);
     this.saveNow();
   }
 
   resume() {
     this.state = 'playing';
+    this.audio.setActive(true);
     this.ui.hideScreens();
     this.input.reset();
     this.input.enabled = true;
@@ -284,6 +318,7 @@ class Game {
     this.input.reset();
     this.input.releaseLock();
     this.ui.show('bigmap');
+    this.audio.setActive(false);
     this.drawBigMap();
   }
 
@@ -318,6 +353,7 @@ class Game {
       heading: v ? v.heading : this.player.facing,
       stats: this.stats,
       missions: this.missions.serialize(),
+      clock: this.clock,
     });
   }
 
@@ -400,7 +436,13 @@ class Game {
         if (v.type === 'police') {
           this.police.release(v);
           this.police.crime('Stealing a police car', 2);
+        } else if (this.traffic.release(v)) {
+          // the driver jumps out and runs
+          const d = v.doorPoint(new THREE.Vector3(), 1.4);
+          this.peds.spawnFleeing(d.x, d.z, v.x, v.z);
+          this.police.crime('Carjacking', 1);
         }
+        this.audio.play('door');
         v.ctrl = null;
         this.ui.notify(v.name, VEHICLE_HINT, '');
       }
@@ -443,7 +485,9 @@ class Game {
     else if (this.state === 'menu') this.updateMenu(dt);
     // paused / map: the world is frozen but keeps rendering behind the menus
 
+    this.updateTimeOfDay(dt);
     this.world.update(dt, this.time);
+    this.effects.update(this.state === 'playing' || this.state === 'menu' || this.state === 'blackout' ? dt : 0);
     const focus = this.state === 'menu' ? MENU_FOCUS : this.player.vehicle ? this.player.vehicle.model.root.position : this.player.pos;
     this.env.update(dt, this.time, this.camera, focus);
     this.renderer.render(this.scene, this.camera);
@@ -461,6 +505,7 @@ class Game {
       this.camera.updateProjectionMatrix();
     }
     this.vehicles.update(dt, null, null);
+    this.vehicles.hits.length = 0;
   }
 
   updatePlaying(dt, now) {
@@ -520,13 +565,15 @@ class Game {
 
     // ---- crimes from collisions
     if (live) this.checkHits();
-    this.vehicles.hits.length = 0;
 
     // ---- police and missions
     if (live) {
       this.police.update(dt);
       this.missions.update(dt);
+      this.traffic.update(dt);
+      this.peds.update(dt);
     }
+    this.updateEffectsAndSound(dt, impact, ctrl, live);
 
     // ---- pickups and prompts
     const got = this.pickups.update(dt, this.time, p.pos, !!p.vehicle, w.heightAt);
@@ -534,6 +581,7 @@ class Game {
       this.cash += got;
       this.stats.pickups++;
       this.ui.notify(`+$${got}`, 'Cash picked up', 'money');
+      this.audio.play('cash');
     }
     this.updatePrompt();
 
@@ -629,6 +677,75 @@ class Game {
     }, 2600);
   }
 
+  // Time of day: the clock runs at one game hour per real minute while playing.
+  updateTimeOfDay(dt) {
+    if (this.state === 'playing') this.clock = (this.clock + dt / 60) % 24;
+    const mode = this.settings.timeMode;
+    const hours = this.state === 'menu' ? 17.6 : mode === 'day' ? 13 : mode === 'night' ? 22.5 : this.clock;
+    if (hours === this.shownHours) return;
+    this.shownHours = hours;
+    this.env.setTime(hours);
+    const k = this.env.night;
+    this.world.setNight(k);
+    setVehicleNight(k);
+    this.effects.setTint(k);
+    this.nightK = k;
+  }
+
+  updateEffectsAndSound(dt, impact, ctrl, live) {
+    const p = this.player;
+    const pv = p.vehicle;
+    const pos = this.playerPosition();
+    // tyre smoke from any sliding car nearby
+    for (const v of this.vehicles.list) {
+      if (v.asleep || v.speed < 2) continue;
+      if (Math.abs(v.x - pos.x) > 90 || Math.abs(v.z - pos.z) > 90) continue;
+      this.effects.tyreSmoke(v, dt);
+    }
+    this.vehicles.hits.length = 0;
+    // headlight beam
+    const hl = this.headlight;
+    if (pv && this.nightK > 0.3) {
+      const f = Math.sin(pv.heading);
+      const c = Math.cos(pv.heading);
+      hl.intensity = 60 * this.nightK;
+      hl.position.set(pv.x + f * (pv.spec.L / 2), pv.y + 0.8, pv.z + c * (pv.spec.L / 2));
+      hl.target.position.set(pv.x + f * 25, pv.y - 1, pv.z + c * 25);
+    } else hl.intensity = 0;
+
+    // crash sounds
+    this.crashSoundT -= dt;
+    if (pv && impact > 3 && this.crashSoundT <= 0) {
+      this.crashSoundT = 0.25;
+      this.audio.play('crash', Math.min(1, impact / 15));
+      if (impact > 6) this.effects.crash(pv.x, pv.y, pv.z, impact);
+    }
+    // footsteps
+    if (!pv && p.stepCount !== this.lastStep) {
+      this.lastStep = p.stepCount;
+      this.audio.play('step', p.runBlend > 0.5 ? 1.4 : 1);
+    }
+    // nearest siren
+    let siren = 0;
+    for (const u of this.police.units) {
+      if (!u.v.siren) continue;
+      const d = Math.hypot(u.v.x - pos.x, u.v.z - pos.z);
+      siren = Math.max(siren, 1 - Math.min(1, d / 150));
+    }
+    const horn = live && !!pv && this.input.down('KeyH');
+    if (horn && !this.horning) {
+      // a horn blast makes nearby pedestrians jump out of the way
+      for (const q of this.peds.list) if (Math.hypot(q.pos.x - pos.x, q.pos.z - pos.z) < 12) this.peds.flee(q, pos.x, pos.z, 2);
+    }
+    this.horning = horn;
+    this.audio.update(this.time, {
+      car: pv ? { speed: pv.forwardSpeed, maxSpeed: pv.spec.maxSpeed, throttle: ctrl ? ctrl.throttle : 0, slip: pv.slip } : null,
+      siren,
+      beach: Math.max(0, Math.min(1, (pos.z - 280) / 80)),
+      horn,
+    });
+  }
+
   // Busted: taken to the police station and fined.
   arrest(level) {
     if (this.state !== 'playing') return;
@@ -636,6 +753,7 @@ class Game {
     this.input.enabled = false;
     this.input.reset();
     const fine = Math.min(this.cash, 150 * level);
+    this.audio.play('busted');
     this.ui.blackout(true, 'BUSTED', `Booked at the Police Station. The fine was $${fine}.`);
     this.missions.fail('You were busted');
     this.police.reset();
@@ -663,6 +781,7 @@ class Game {
 
   onWantedChange(level, before, reason) {
     if (level > before) {
+      this.audio.play('wanted');
       this.ui.notify(`Wanted: ${'★'.repeat(level)}`, reason || 'The police are after you.', 'warn');
     } else if (level === 0 && reason === 'lost') {
       this.ui.notify('You lost them', 'The police have stopped looking for you.', 'money');
@@ -672,6 +791,14 @@ class Game {
   // Car-to-car hits the player caused this frame
   checkHits() {
     const pv = this.player.vehicle;
+    for (const h of this.vehicles.hits) {
+      if (h.impact > 5) {
+        this.traffic.shock(h.a, h.impact);
+        this.traffic.shock(h.b, h.impact);
+        const near = Math.hypot(h.a.x - this._pp.x, h.a.z - this._pp.z) < 120;
+        if (near) this.effects.crash((h.a.x + h.b.x) / 2, h.a.y, (h.a.z + h.b.z) / 2, h.impact);
+      }
+    }
     if (!pv) return;
     for (const h of this.vehicles.hits) {
       const other = h.a === pv ? h.b : h.b === pv ? h.a : null;
@@ -746,7 +873,7 @@ class Game {
 }
 
 const MENU_FOCUS = new THREE.Vector3(0, 0, 40);
-const VEHICLE_HINT = 'W/S drive and brake, A/D steer, Space handbrake, E to get out.';
+const VEHICLE_HINT = 'W/S drive and brake, A/D steer, Space handbrake, H horn, E to get out.';
 
 // Name of the street the point is on (or null)
 function streetAt(x, z) {

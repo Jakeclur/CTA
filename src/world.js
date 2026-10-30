@@ -65,6 +65,7 @@ export async function buildWorld(scene, onProgress) {
       fountains: [], canopies: [], lifeguards: [], bollards: [],
     },
     map: { rects: [], pois: [] },
+    nightMaterials: [],
     spots: { parking: [], pickups: [], vending: [] },
     builders: {
       paving: new GeoBuilder(), grass: new GeoBuilder(), concrete: new GeoBuilder(), lot: new GeoBuilder(),
@@ -122,8 +123,14 @@ export async function buildWorld(scene, onProgress) {
     spawn: ctx.spawn,
     respawn: ctx.respawn,
     policeRespawn: ctx.policeRespawn,
+    signals: props.signals,
     update(dt, t) {
       props.update(dt, t);
+    },
+    // 0 = day, 1 = night: windows, shop fronts and street lamps glow
+    setNight(k) {
+      for (const { m, max } of ctx.nightMaterials) m.emissiveIntensity = k * max;
+      props.setNight(k);
     },
   };
 }
@@ -910,10 +917,22 @@ function buildBuildingMeshes(ctx, tex, group) {
       roughness: 1,
       metalness: s === 'glass' ? 0.35 : 0.08,
       envMapIntensity: s === 'glass' ? 1.4 : 0.7,
+      emissive: '#ffffff',
+      emissiveMap: tex.facades[s].emissiveMap,
+      emissiveIntensity: 0,
     });
   const add = (m) => m && group.add(m);
-  for (const s of Object.keys(walls)) add(walls[s].mesh(facadeMat(s), { castShadow: true }));
-  add(store.mesh(new THREE.MeshStandardMaterial({ map: tex.store.map, roughnessMap: tex.store.roughnessMap, vertexColors: true, metalness: 0.1 }), { castShadow: true }));
+  for (const s of Object.keys(walls)) {
+    const m = facadeMat(s);
+    ctx.nightMaterials.push({ m, max: 1.1 });
+    add(walls[s].mesh(m, { castShadow: true }));
+  }
+  const storeMat = new THREE.MeshStandardMaterial({
+    map: tex.store.map, roughnessMap: tex.store.roughnessMap, vertexColors: true, metalness: 0.1,
+    emissive: '#ffffff', emissiveMap: tex.store.map, emissiveIntensity: 0,
+  });
+  ctx.nightMaterials.push({ m: storeMat, max: 0.35 });
+  add(store.mesh(storeMat, { castShadow: true }));
   add(roof.mesh(new THREE.MeshStandardMaterial({ map: tex.roof, vertexColors: true, roughness: 1 })));
   add(tiles.mesh(new THREE.MeshStandardMaterial({ map: tex.tiles, vertexColors: true, roughness: 0.85, side: THREE.DoubleSide }), { castShadow: true }));
   add(trim.mesh(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }), { castShadow: true }));

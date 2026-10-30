@@ -53,8 +53,26 @@ function drawFacade(style, rng) {
   const [rc, r] = canvas(S, S);
   r.fillStyle = '#e0e0e0';
   r.fillRect(0, 0, S, S);
+  // night lights: a quarter-size map of which windows glow after dark
+  const [ec, e] = canvas(S / 4, S / 4);
+  e.fillStyle = '#000';
+  e.fillRect(0, 0, S / 4, S / 4);
+  e.scale(0.25, 0.25);
+  const WARM = ['#ffcf7a', '#ffe2a8', '#fff0cf', '#ffd08a', '#cfe2ff'];
+  const lit = (x, y, w, h) => {
+    // wide window bands are split into rooms that are lit separately
+    const room = w > 120 ? 64 : w;
+    for (let rx = x; rx < x + w - 1; rx += room) {
+      if (rng() > 0.42) continue;
+      e.fillStyle = WARM[Math.floor(rng() * WARM.length)];
+      e.globalAlpha = 0.55 + rng() * 0.45;
+      e.fillRect(rx + 1, y + 1, Math.min(room, x + w - rx) - 2, h - 2);
+    }
+    e.globalAlpha = 1;
+  };
 
   const glass = (x, y, w, h, tone = rng()) => {
+    lit(x, y, w, h);
     const grad = g.createLinearGradient(x, y, x, y + h);
     const top = 70 + tone * 50;
     grad.addColorStop(0, `rgb(${top * 0.75},${top * 0.95},${top * 1.15})`);
@@ -193,7 +211,8 @@ function drawFacade(style, rng) {
 
   const map = toTexture(c);
   const roughnessMap = toTexture(rc, { srgb: false });
-  return { map, roughnessMap };
+  const emissiveMap = toTexture(ec);
+  return { map, roughnessMap, emissiveMap };
 }
 
 // Shop fronts: 2 shops per 14m tile, one storey (4.5m) high.

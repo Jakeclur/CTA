@@ -52,10 +52,16 @@ export const VEHICLE_TYPES = {
 // ------------------------------------------------------------------ models
 
 const shared = {};
+let nightLevel = 0;
+// 0 = day, 1 = night: cars with someone driving switch their lights on after dark
+export function setVehicleNight(k) {
+  nightLevel = k;
+}
 function sharedMaterials() {
   if (shared.glass) return shared;
   shared.glass = new THREE.MeshStandardMaterial({ color: '#1b2630', roughness: 0.05, metalness: 0.6, envMapIntensity: 1.5 });
   shared.head = new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#fff6dd', emissiveIntensity: 0.5 });
+  shared.headOn = new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#fff6dd', emissiveIntensity: 5 });
   shared.red = new THREE.MeshStandardMaterial({ color: '#ff2020', emissive: '#ff0000', emissiveIntensity: 1.2 });
   shared.blue = new THREE.MeshStandardMaterial({ color: '#2050ff', emissive: '#0030ff', emissiveIntensity: 1.2 });
   shared.label = new THREE.MeshBasicMaterial({ map: makeLabelTexture('POLICE', '#14213d'), transparent: true });
@@ -266,7 +272,7 @@ function buildModel(t, color) {
   add(M.paint, P);
   add(M.glass, S.glass);
   add(M.trim, S.trimVC);
-  add(M.head, S.head, body, false);
+  const head = add(M.head, S.head, body, false);
   const tail = new THREE.MeshStandardMaterial({ color: '#b00000', emissive: '#ff1010', emissiveIntensity: 0.35 });
   add(M.tail, tail, body, false);
   // police lightbars get their own materials so each car can flash independently
@@ -292,7 +298,7 @@ function buildModel(t, color) {
     wheels.push({ steerG, spin, front: sz > 0 });
   }
 
-  return { root, body, door, wheels, tail, siren, doorZ: M.doorFront - M.doorLen / 2 };
+  return { root, body, door, wheels, tail, head, siren, doorZ: M.doorFront - M.doorLen / 2 };
 }
 
 // ------------------------------------------------------------------ physics
@@ -489,7 +495,10 @@ export class Vehicle {
     if (dt > 0) {
       this.doorOpen = damp(this.doorOpen, this.doorTarget, 10, dt);
       m.door.rotation.y = this.doorOpen * 1.15;
-      m.tail.emissiveIntensity = this.braking && (this.driver || this.ctrl) ? 2.2 : 0.35;
+      const lights = nightLevel > 0.3 && (this.driver || this.ctrl);
+      m.tail.emissiveIntensity = this.braking && (this.driver || this.ctrl) ? 2.2 : lights ? 1 : 0.35;
+      const hm = lights ? sharedMaterials().headOn : sharedMaterials().head;
+      if (m.head.material !== hm) m.head.material = hm;
       if (m.siren) {
         const t = performance.now() / 1000;
         const on = this.siren;

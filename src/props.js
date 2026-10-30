@@ -104,6 +104,21 @@ export function buildProps(ctx, group) {
   glowGeo.translate(0, 7.76, 2.2);
   const glowMesh = instanced(glowGeo, lampGlow, P.streetlights, { cast: false });
   add(glowMesh);
+  // pools of light on the pavement under each lamp after dark
+  const poolTex = makePoolTexture();
+  const poolMat = new THREE.MeshBasicMaterial({
+    map: poolTex, color: '#ffd9a0', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending,
+    polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
+  });
+  const poolGeo = new THREE.PlaneGeometry(13, 13);
+  poolGeo.rotateX(-Math.PI / 2);
+  poolGeo.translate(0, 0.2, 3.2);
+  const pools = instanced(poolGeo, poolMat, P.streetlights, { cast: false });
+  if (pools) {
+    pools.receiveShadow = false;
+    pools.visible = false;
+    add(pools);
+  }
 
   // ---------------- traffic lights
   const tlPole = mergeParts([
@@ -124,10 +139,7 @@ export function buildProps(ctx, group) {
   const OFF = [new THREE.Color('#3a1210'), new THREE.Color('#3a3110'), new THREE.Color('#10351a')];
   let lastPhase = '';
   function setSignals(t) {
-    const c = t % 26;
-    // ns: green 0-10, yellow 10-13, red 13-26.  ew: red 0-13, green 13-23, yellow 23-26
-    const ns = c < 10 ? 2 : c < 13 ? 1 : 0;
-    const ew = c < 13 ? 0 : c < 23 ? 2 : 1;
+    const { ns, ew } = signalState(t);
     const key = `${ns}${ew}`;
     if (key === lastPhase) return;
     lastPhase = key;
@@ -393,6 +405,14 @@ export function buildProps(ctx, group) {
   }
 
   return {
+    signals: signalState,
+    setNight(k) {
+      lampGlow.emissiveIntensity = 0.25 + k * 3;
+      if (pools) {
+        pools.visible = k > 0.02;
+        poolMat.opacity = k * 0.55;
+      }
+    },
     update(dt, t) {
       setSignals(t);
       for (const s of sprays) {
@@ -401,6 +421,29 @@ export function buildProps(ctx, group) {
       }
     },
   };
+}
+
+// Traffic signal state at time t for each axis: 2 green, 1 yellow, 0 red.
+// ns (traffic moving along z): green 0-10, yellow 10-13, red 13-26.
+// ew (traffic moving along x): red 0-13, green 13-23, yellow 23-26.
+export function signalState(t) {
+  const c = ((t % 26) + 26) % 26;
+  return { ns: c < 10 ? 2 : c < 13 ? 1 : 0, ew: c < 13 ? 0 : c < 23 ? 2 : 1, cycle: c };
+}
+
+function makePoolTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.5, 'rgba(255,255,255,0.35)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
 
 function makePalmFronds() {

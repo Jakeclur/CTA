@@ -12,6 +12,9 @@ export const DEFAULT_SETTINGS = {
   invertY: false,
   showFps: false,
   autoCenter: true,
+  timeMode: 'cycle', // cycle | day | night
+  traffic: 'medium', // off | low | medium | high
+  volume: 0.7,
 };
 
 export const DEFAULT_PROGRESS = {
@@ -22,6 +25,7 @@ export const DEFAULT_PROGRESS = {
   heading: 0,
   stats: { pickups: 0, distanceDriven: 0 },
   missions: [], // ids of completed missions
+  clock: 9, // time of day in hours
 };
 
 function read(key) {
