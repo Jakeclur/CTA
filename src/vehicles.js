@@ -47,6 +47,23 @@ export const VEHICLE_TYPES = {
     mass: 1550, maxSpeed: 55, accel: 9, brake: 23, steer: 0.58, grip: 9.5,
     colors: ['#14213d'],
   },
+  taxi: {
+    name: 'Metro Cab', ...SEDAN_SHAPE, taxi: true,
+    mass: 1450, maxSpeed: 46, accel: 7.2, brake: 21, steer: 0.58, grip: 8.5,
+    colors: ['#f6c90e'],
+  },
+  ute: {
+    name: 'Outback', L: 5.15, W: 1.9, H: 1.78, clr: 0.3, belt: 1.1, hoodL: 1.15, wsRun: 0.7, roofL: 1.25, rearRun: 0,
+    deck: 1.1, wheelR: 0.4, wheelBase: 3.15, track: 1.64, ute: true,
+    mass: 1900, maxSpeed: 45, accel: 7, brake: 19, steer: 0.55, grip: 8.2,
+    colors: ['#f8f9fa', '#b5651d', '#355070', '#6b705c', '#9d0208'],
+  },
+  muscle: {
+    name: 'Vortex V8', L: 4.85, W: 1.95, H: 1.28, clr: 0.16, belt: 0.86, hoodL: 1.75, wsRun: 0.8, roofL: 1.05, rearRun: 0.75,
+    deck: 0.92, wheelR: 0.36, wheelBase: 2.85, track: 1.64, stripes: true,
+    mass: 1600, maxSpeed: 60, accel: 10.5, brake: 22, steer: 0.56, grip: 9,
+    colors: ['#0b3d91', '#8b0000', '#111111', '#f77f00', '#2d6a4f'],
+  },
 };
 
 // ------------------------------------------------------------------ models
@@ -97,7 +114,7 @@ function profileGeometries(t) {
   const cowl = front - t.hoodL;
   const roofF = cowl - t.wsRun;
   const roofR = t.van ? rear + 0.05 : roofF - t.roofL;
-  const glassR = t.van ? roofF - 0.85 : t.hatch ? rear + 0.12 : roofR - t.rearRun;
+  const glassR = t.van ? roofF - 0.85 : t.ute ? roofR : t.hatch ? rear + 0.12 : roofR - t.rearRun;
   const wf = t.wheelBase / 2;
   const wr = -t.wheelBase / 2;
   const R = t.wheelR + 0.07;
@@ -119,6 +136,13 @@ function profileGeometries(t) {
     body.lineTo(glassR, t.belt);
     body.lineTo(glassR, t.H);
     body.lineTo(rear, t.H);
+    body.lineTo(rear, t.clr + 0.25);
+  } else if (t.ute) {
+    // cab, then a covered tray at belt height
+    body.lineTo(glassR, t.belt);
+    body.lineTo(glassR - 0.1, t.belt);
+    body.lineTo(glassR - 0.1, t.deck);
+    body.lineTo(rear, t.deck);
     body.lineTo(rear, t.clr + 0.25);
   } else {
     body.lineTo(glassR, t.belt);
@@ -214,6 +238,34 @@ function typeGeometries(t) {
   }
   if (t.van) {
     for (const sx of [-1, 1]) trimParts.push(part(BoxG(0.03, 0.6, 2.4), { x: sx * (hw + 0.01), y: t.belt + 0.55, z: rear + 1.6 }, WHITE));
+  }
+  if (t.ute) {
+    // tonneau cover, cab back wall and a roll bar
+    const trayLen = glassR - 0.1 - rear;
+    trimParts.push(part(BoxG(t.W - 0.12, 0.04, trayLen - 0.1), { y: t.deck + 0.02, z: rear + trayLen / 2 }, TRIM));
+    trimParts.push(part(BoxG(t.W - 0.1, t.H - t.belt, 0.08), { y: (t.H + t.belt) / 2 - 0.04, z: glassR - 0.02 }, TRIM));
+    for (const sx of [-1, 1]) trimParts.push(part(BoxG(0.07, 0.55, 0.07), { x: sx * (hw - 0.2), y: t.deck + 0.28, z: glassR - 0.35 }, CHROME));
+    trimParts.push(part(BoxG(t.W - 0.33, 0.07, 0.07), { y: t.deck + 0.55, z: glassR - 0.35 }, CHROME));
+  }
+  if (t.taxi) {
+    const signZ = G.dims.roofF - t.roofL * 0.45;
+    trimParts.push(part(BoxG(0.9, 0.26, 0.3), { y: t.H + 0.12, z: signZ }, WHITE));
+    trimParts.push(part(BoxG(0.94, 0.08, 0.34), { y: t.H + 0.27, z: signZ }, '#111111'));
+    // chequered band along both sides
+    for (const sx of [-1, 1]) {
+      for (let k = 0; k < 10; k++) {
+        const z = rear + 0.8 + k * ((t.L - 1.6) / 10);
+        trimParts.push(part(BoxG(0.02, 0.09, (t.L - 1.6) / 20), { x: sx * (hw + 0.012), y: t.belt - 0.12 - (k % 2) * 0.09, z }, '#111111'));
+      }
+    }
+  }
+  if (t.stripes) {
+    // twin racing stripes over the hood, roof and boot
+    for (const sx of [-0.18, 0.18]) {
+      trimParts.push(part(BoxG(0.2, 0.02, t.hoodL - 0.1), { x: sx, y: t.belt - 0.06, z: front - t.hoodL / 2 - 0.05, rx: 0.08 }, WHITE));
+      trimParts.push(part(BoxG(0.2, 0.02, t.roofL - 0.1), { x: sx, y: t.H, z: G.dims.roofF - t.roofL / 2 }, WHITE));
+    }
+    trimParts.push(part(BoxG(0.9, 0.12, 0.2), { y: t.belt - 0.02, z: front - t.hoodL * 0.45 }, TRIM)); // hood scoop
   }
 
   // driver's door (driver sits on the right, which is local -x), hinged at its front edge

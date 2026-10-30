@@ -67,6 +67,7 @@ export async function buildWorld(scene, onProgress) {
     map: { rects: [], pois: [] },
     nightMaterials: [],
     spots: { parking: [], pickups: [], vending: [] },
+    places: { garage: null, stores: [], docks: null },
     builders: {
       paving: new GeoBuilder(), grass: new GeoBuilder(), concrete: new GeoBuilder(), lot: new GeoBuilder(),
       sand: new GeoBuilder(), wood: new GeoBuilder(), path: new GeoBuilder(), markings: new GeoBuilder(),
@@ -123,6 +124,7 @@ export async function buildWorld(scene, onProgress) {
     spawn: ctx.spawn,
     respawn: ctx.respawn,
     policeRespawn: ctx.policeRespawn,
+    places: ctx.places,
     signals: props.signals,
     update(dt, t) {
       props.update(dt, t);
@@ -534,6 +536,7 @@ function genPetrol(ctx, b, rng) {
   ctx.spots.parking.push({ x: cx - 3, z: cz - 3.3, heading: Math.PI / 2, type: 'compact' });
   ctx.spots.vending.push({ x: shop.x1 + 1.2, z: shop.z1 - 2, rot: Math.PI / 2 });
   ctx.map.pois.push({ x: cx, z: cz, type: 'petrol', label: 'PetroSol' });
+  ctx.places.stores.push({ x: cx - 4, z: shop.z1 + 1.6 });
 }
 
 function lotStall(ctx, x, z, w, d, alongZ) {
@@ -579,6 +582,12 @@ function genGarage(ctx, b, rng) {
   // a second, smaller building at the back
   addBuilding(ctx, b, L.x0 + 2, L.z1 - 4, L.x0 + 14, L.z1 - 1, CURB_H + 4, { style: 'brick', tint: '#c9a28c' });
   ctx.map.pois.push({ x: (b.x0 + b.x1) / 2, z: (b.z0 + b.z1) / 2, type: 'garage', label: 'Solano Customs' });
+  const mx = (rec.x0 + rec.x1) / 2;
+  ctx.places.garage = {
+    dealer: { x: mx - 6, z: rec.z1 + 2.5 }, // showroom door, on foot
+    bay: { x: mx + 10, z: rec.z1 + 11 }, // drive in to store a car
+    delivery: { x: mx, z: rec.z1 + 19, heading: Math.PI / 2 },
+  };
 }
 
 // ------------------------------------------------------------------ block ground
@@ -732,7 +741,7 @@ function buildRoads(ctx) {
     const z = alongZ ? s : c + a;
     const heading = alongZ ? (dir > 0 ? 0 : Math.PI) : dir > 0 ? Math.PI / 2 : -Math.PI / 2;
     if (Math.hypot(x - ctx.spawn.x, z - ctx.spawn.z) < 20) continue;
-    ctx.spots.parking.push({ x, z, heading, type: rng.pick(['compact', 'sedan', 'sedan', 'suv', 'van']) });
+    ctx.spots.parking.push({ x, z, heading, type: rng.pick(['compact', 'sedan', 'sedan', 'suv', 'van', 'ute', 'taxi']) });
   }
 }
 
@@ -767,10 +776,13 @@ function buildOuterRing(ctx) {
   for (let k = 0; k < 40; k++) {
     const x = rng.range(-S + 5, S - 5);
     const z = rng.range(SAND_Z0 + 8, SHORE_Z - 12);
-    ctx.props.umbrellas.push({ x, z, rot: rng() * Math.PI, color: rng.int(0, 4) });
+    const rot = rng() * Math.PI;
+    const color = rng.int(0, 4);
+    if (x > DOCKS.x0 - 4) continue; // no sunbathing on the wharf
+    ctx.props.umbrellas.push({ x, z, rot, color });
     ctx.colliders.addPost(x, z, 0.2, 2.6);
   }
-  for (const x of [-180, 60, 250]) {
+  for (const x of [-180, 60, 190]) {
     ctx.props.lifeguards.push({ x, z: SHORE_Z - 20 });
     ctx.colliders.add(x - 1.6, SHORE_Z - 21.6, x + 1.6, SHORE_Z - 18.4, 5, -5, 'tower');
   }
@@ -778,7 +790,8 @@ function buildOuterRing(ctx) {
   ctx.spots.vending.push({ x: 140, z: SAND_Z0 - 0.8, rot: Math.PI });
   ctx.spots.pickups.push({ x: -40, z: 372 });
   ctx.spots.pickups.push({ x: 210, z: 385 });
-  ctx.map.pois.push({ x: 0, z: 370, type: 'beach', label: 'Solano Beach' });
+  ctx.map.pois.push({ x: -40, z: 370, type: 'beach', label: 'Solano Beach' });
+  buildDocks(ctx);
 
   // city limits: fences and trees beyond the outer pavement
   const T = ctx.builders.trim;
@@ -794,7 +807,11 @@ function buildOuterRing(ctx) {
   ctx.colliders.add(B.minX - 30, B.minZ - 30, B.minX, B.maxZ + 30, 200, -5, 'bound');
   ctx.colliders.add(B.maxX, B.minZ - 30, B.maxX + 30, B.maxZ + 30, 200, -5, 'bound');
   ctx.colliders.add(B.minX - 30, B.minZ - 30, B.maxX + 30, B.minZ, 200, -5, 'bound');
-  ctx.colliders.add(B.minX - 30, B.maxZ, B.maxX + 30, B.maxZ + 30, 200, -5, 'bound');
+  // the sea, except where the wharf sticks out
+  const D = DOCKS;
+  ctx.colliders.add(B.minX - 30, B.maxZ, D.x0, B.maxZ + 80, 200, -5, 'bound');
+  ctx.colliders.add(D.x1, B.maxZ, B.maxX + 30, B.maxZ + 80, 200, -5, 'bound');
+  ctx.colliders.add(D.x0, D.z1, D.x1, D.z1 + 30, 200, -5, 'bound');
   for (let t = B.minZ; t < SAND_Z0; t += 9) {
     ctx.props.trees.push({ x: B.minX - 4 - rng() * 6, z: t + rng() * 4, s: rng.range(1, 1.6) });
     ctx.props.trees.push({ x: B.maxX + 4 + rng() * 6, z: t + rng() * 4, s: rng.range(1, 1.6) });
@@ -802,6 +819,87 @@ function buildOuterRing(ctx) {
   for (let t = B.minX; t < B.maxX; t += 9) {
     ctx.props.trees.push({ x: t + rng() * 4, z: B.minZ - 4 - rng() * 6, s: rng.range(1, 1.6) });
   }
+}
+
+// ------------------------------------------------------------------ docks
+
+// The container wharf at the east end of the beach, reaching out into the sea.
+export const DOCKS = { x0: 236, x1: 342, z0: SAND_Z0, z1: 448, top: CURB_H + 0.04 };
+
+function buildDocks(ctx) {
+  const D = DOCKS;
+  const T = ctx.builders.trim;
+  const C = ctx.builders.concrete;
+  const rng = makeRng(SEED + 9);
+  const y = D.top;
+  // deck and its sea wall
+  C.top(D.x0, D.z0, D.x1, D.z1, y, 6, rgb('#d9d6cf'));
+  C.walls(D.x0, D.z0, D.x1, D.z1, -3, y, 6, 6, rgb('#9a958c'));
+  ctx.map.rects.push({ x0: D.x0, z0: D.z0, x1: D.x1, z1: D.z1, type: 'dock' });
+  ctx.map.pois.push({ x: 290, z: 400, type: 'docks', label: 'Port Docks' });
+  // yellow safety line along the water's edge
+  const M = ctx.builders.markings;
+  const yellow = rgb('#f2c230');
+  M.top(D.x0 + 1, D.z1 - 1.6, D.x1 - 1, D.z1 - 1.2, y + 0.01, 1, yellow);
+  M.top(D.x0 + 1.2, SHORE_Z, D.x0 + 1.6, D.z1 - 1.2, y + 0.01, 1, yellow);
+  // bollards on the edge
+  for (let x = D.x0 + 6; x < D.x1 - 2; x += 12) {
+    T.box(x - 0.3, y, D.z1 - 0.9, x + 0.3, y + 0.7, D.z1 - 0.3, rgb('#2b2d31'), 2);
+    ctx.colliders.addPost(x, D.z1 - 0.6, 0.35, 0.7);
+  }
+  // container stacks in rows, leaving lanes to drive through
+  const colours = ['#c0392b', '#2471a3', '#1e8449', '#d68910', '#7d3c98', '#5d6d7e', '#ca6f1e', '#17a589'];
+  for (let row = 0; row < 3; row++) {
+    const z0 = 352 + row * 22;
+    for (let x = D.x0 + 12; x < D.x1 - 14; x += 15) {
+      if (rng.chance(0.25)) continue; // gaps between stacks
+      const len = 12.2;
+      const w = 2.5;
+      const levels = rng.int(1, 3);
+      for (let k = 0; k < 2; k++) {
+        const zz = z0 + k * (w + 0.3);
+        for (let l = 0; l < levels; l++) {
+          const c = rgb(rng.pick(colours), 0.9 + rng() * 0.2);
+          const y0 = y + l * 2.6;
+          T.box(x, y0, zz, x + len, y0 + 2.55, zz + w, c, 2);
+          // ribs so the boxes read as containers
+          for (let r = 1; r < 6; r++) T.box(x + r * 2, y0 + 0.1, zz - 0.04, x + r * 2 + 0.12, y0 + 2.45, zz + w + 0.04, rgb('#000000', 0.25), 1);
+        }
+      }
+      ctx.colliders.add(x, z0, x + len, z0 + 2 * w + 0.3, y + levels * 2.6, -5, 'container');
+    }
+  }
+  // two gantry cranes over the quay
+  for (const cx of [262, 312]) {
+    const z0 = 424;
+    const z1 = D.z1 + 14;
+    const steel = rgb('#e4a11b');
+    for (const lx of [cx - 9, cx + 9]) {
+      for (const lz of [z0, D.z1 - 3]) {
+        T.box(lx - 0.6, y, lz - 0.6, lx + 0.6, y + 26, lz + 0.6, steel, 2);
+        ctx.colliders.add(lx - 0.7, lz - 0.7, lx + 0.7, lz + 0.7, 26, -5, 'crane');
+      }
+      T.box(lx - 0.5, y + 24, z0 - 8, lx + 0.5, y + 25.4, z1, steel, 2);
+    }
+    T.box(cx - 9, y + 25.4, z0 - 8, cx + 9, y + 26.6, z0 - 6.5, steel, 2);
+    T.box(cx - 9, y + 25.4, z1 - 1.5, cx + 9, y + 26.6, z1, steel, 2);
+    T.box(cx - 3, y + 21, z0 + 6, cx + 3, y + 24, z0 + 11, rgb('#f5f5f5'), 2); // trolley cab
+    T.box(cx - 0.1, y + 9, z0 + 8.4, cx + 0.1, y + 21, z0 + 8.6, rgb('#222222'), 1); // cable
+  }
+  // a cargo ship moored alongside
+  const sx0 = D.x0 + 8;
+  const sx1 = D.x1 - 6;
+  const sz0 = D.z1 + 3;
+  const sz1 = sz0 + 16;
+  T.box(sx0, -3, sz0, sx1, 4.5, sz1, rgb('#7b241c'), 2);
+  T.box(sx0, 4.5, sz0, sx1, 5.2, sz1, rgb('#2c3e50'), 2);
+  T.box(sx1 - 18, 5.2, sz0 + 2, sx1 - 4, 15, sz1 - 2, rgb('#ecf0f1'), 2);
+  T.box(sx1 - 10, 15, sz0 + 6, sx1 - 7, 20, sz1 - 6, rgb('#c0392b'), 2);
+  for (let x = sx0 + 6; x < sx1 - 24; x += 13) {
+    for (let l = 0; l < 2; l++) T.box(x, 5.2 + l * 2.6, sz0 + 2.5, x + 12.2, 7.75 + l * 2.6, sz1 - 2.5, rgb(rng.pick(colours)), 2);
+  }
+  ctx.places.docks = { x: 290, z: 432 };
+  ctx.spots.pickups.push({ x: 300, z: 398 });
 }
 
 // ------------------------------------------------------------------ meshes
@@ -955,6 +1053,7 @@ function makeHeightFn(ctx) {
       }
     }
     const ax = Math.abs(x);
+    if (x >= DOCKS.x0 && z >= DOCKS.z0 && z <= DOCKS.z1) return DOCKS.top;
     if (z >= SAND_Z0) {
       const t = Math.max(0, (z - (SHORE_Z - 30)) / 40);
       return CURB_H - 0.02 - t * 1.2;
@@ -969,7 +1068,7 @@ function makeHeightFn(ctx) {
 
 function makeAreaFn() {
   return function areaAt(x, z) {
-    if (z > HALF + ROAD_HALF + SIDEWALK) return 'Solano Beach';
+    if (z > HALF + ROAD_HALF + SIDEWALK) return x >= DOCKS.x0 ? 'Port Docks' : 'Solano Beach';
     const bx = Math.max(0, Math.min(GRID - 1, Math.floor((x + HALF) / PITCH)));
     const bz = Math.max(0, Math.min(GRID - 1, Math.floor((z + HALF) / PITCH)));
     const sp = SPECIAL[`${bx},${bz}`];

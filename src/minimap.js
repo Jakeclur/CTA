@@ -14,6 +14,7 @@ const COLORS = {
   sand: '#d8c38f',
   boardwalk: '#9b7650',
   sea: '#1f5f80',
+  dock: '#a7a49c',
 };
 
 const POI_STYLE = {
@@ -24,6 +25,7 @@ const POI_STYLE = {
   garage: { color: '#eab308', letter: 'G' },
   park: { color: '#22c55e', letter: '♣' },
   beach: { color: '#facc15', letter: '☀' },
+  docks: { color: '#0ea5e9', letter: '⚓' },
 };
 
 export class Minimap {
@@ -57,6 +59,12 @@ export class Minimap {
     }
     g.fillStyle = COLORS.sea;
     g.fillRect(0, Z(388), size, size);
+    // the wharf reaches out over the sea
+    for (const r of this.world.map.rects) {
+      if (r.type !== 'dock') continue;
+      g.fillStyle = COLORS.dock;
+      g.fillRect(X(r.x0), Z(r.z0), (r.x1 - r.x0) * PX, (r.z1 - r.z0) * PX);
+    }
     return c;
   }
 

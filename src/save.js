@@ -26,6 +26,7 @@ export const DEFAULT_PROGRESS = {
   stats: { pickups: 0, distanceDriven: 0 },
   missions: [], // ids of completed missions
   clock: 9, // time of day in hours
+  garage: [], // owned cars: [{ type, color }]
 };
 
 function read(key) {

@@ -2,6 +2,7 @@
 // tracks objectives, timers, rewards, failure and replays.
 import * as THREE from 'three';
 import { Character } from './player.js';
+import { VEHICLE_TYPES } from './vehicles.js';
 
 // A glowing column with a ring and a bobbing arrow, used for objectives.
 export class Marker {
@@ -234,6 +235,7 @@ export class Missions {
         target = { x: v.x, z: v.z, vehicle: v };
         done = pv === v;
       } else {
+        if (s.x !== undefined) target = { x: s.x, z: s.z };
         done = !!pv && (!s.vehicleType || pv.type === s.vehicleType);
       }
     } else if (s.type === 'drive') {
@@ -242,7 +244,9 @@ export class Missions {
         label = `Get back in the ${v.name}`;
         target = { x: v.x, z: v.z, vehicle: v };
       } else if (!v && !pv) {
-        label = 'Get a vehicle';
+        label = s.vehicleType ? `Get back in a ${VEHICLE_TYPES[s.vehicleType].name}` : 'Get a vehicle';
+      } else if (s.vehicleType && pv.type !== s.vehicleType) {
+        label = `Get back in a ${VEHICLE_TYPES[s.vehicleType].name}`;
       } else {
         target = { x: s.x, z: s.z, big: true };
         const d = Math.hypot(pos.x - s.x, pos.z - s.z);

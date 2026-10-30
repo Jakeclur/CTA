@@ -20,6 +20,7 @@ import { Pedestrians } from './pedestrians.js';
 import { Audio } from './audio.js';
 import { Effects } from './effects.js';
 import { setVehicleNight } from './vehicles.js';
+import { Shops } from './shop.js';
 import { loadSettings, saveSettings, loadProgress, saveProgress, clearProgress, hasProgress, DEFAULT_PROGRESS } from './save.js';
 import { ROAD_LINES, ROAD_HALF, CITY_NAME } from './config.js';
 
@@ -115,6 +116,7 @@ class Game {
     this.police = new Police(this);
     this.police.onLevelChange = (level, before, reason) => this.onWantedChange(level, before, reason);
     this.missions = new Missions(this, MISSIONS);
+    this.shops = new Shops(this);
     this.traffic = new Traffic(this);
     this.peds = new Pedestrians(this);
     this.effects = new Effects(this.scene);
@@ -197,10 +199,17 @@ class Game {
         this.player.health = 100;
         if (this.missions.active) this.missions.cleanup();
         this.missions.load([]);
+        this.shops.load([]);
       }
       ui.notify('Progress reset', 'Cash, missions and position were cleared.', 'warn');
     });
     ui.on('missions', () => this.showMissions());
+    ui.on('shopAction', (run) => {
+      run();
+      const data = this.shops.open(this.shopAt);
+      if (data) ui.renderShop(data, this.cash);
+    });
+    ui.on('closeShop', () => this.resume());
     ui.on('abandon', () => {
       this.missions.abandon();
       this.resume();
@@ -219,7 +228,7 @@ class Game {
         else if (this.state === 'paused') {
           // the Esc that released the mouse already paused the game: ignore its echo
           if (performance.now() - this.pausedAt < 400) return;
-          if (ui.current === 'pause') this.resume();
+          if (ui.current === 'pause' || ui.current === 'shop') this.resume();
           else ui.show('pause');
         } else if (this.state === 'menu' && ui.current !== 'menu') ui.show('menu');
       } else if (e.code === 'KeyM') {
@@ -254,6 +263,8 @@ class Game {
     this.stats = { ...progress.stats };
     this.missions.load(progress.missions);
     this.clock = progress.clock ?? 9;
+    for (const v of [...this.vehicles.list]) if (v.ownedId) this.vehicles.remove(v);
+    this.shops.load(progress.garage);
     this.traffic.clear();
     this.peds.clear();
     this.audio.setActive(true);
@@ -354,6 +365,7 @@ class Game {
       stats: this.stats,
       missions: this.missions.serialize(),
       clock: this.clock,
+      garage: this.shops.serialize(),
     });
   }
 
@@ -542,6 +554,7 @@ class Game {
       p.pos.set(v.x, v.y, v.z);
       this.stats.distanceDriven += v.speed * dt;
       if (live && input.hit('KeyE')) this.tryExit();
+      if (live && input.hit('KeyF')) this.useShop();
       if (live && input.hit('KeyC')) {
         this.rig.yaw = v.heading;
         this.rig.pitch = 0.18;
@@ -550,7 +563,7 @@ class Game {
     } else if (live) {
       p.update(dt, input, this.rig.yaw, w, (pos, r) => this.vehicles.pushOut(pos, r));
       if (input.hit('KeyE')) this.tryEnter();
-      if (input.hit('KeyF')) this.useNearby();
+      if (input.hit('KeyF') && !this.useShop()) this.useNearby();
     }
 
     // crash damage while driving
@@ -571,6 +584,7 @@ class Game {
       this.police.update(dt);
       this.missions.update(dt);
       this.traffic.update(dt);
+      this.shops.update(this.time);
       this.peds.update(dt);
     }
     this.updateEffectsAndSound(dt, impact, ctrl, live);
@@ -631,12 +645,37 @@ class Game {
   updatePrompt() {
     const p = this.player;
     if (this.state !== 'playing' || this.transition) return this.ui.setPrompt(null);
+    const shop = this.shops.nearby();
+    if (shop) return this.ui.setPrompt(this.shops.prompt(shop));
     if (p.vehicle) return this.ui.setPrompt(null);
     const v = this.vehicles.nearestEnterable(p.pos, 2.6);
     if (v) return this.ui.setPrompt(`<kbd>E</kbd> Enter ${v.name}`);
     const m = this.vending.nearest(p.pos);
     if (m) return this.ui.setPrompt(`<kbd>F</kbd> Buy a Sunset Cola ($${DRINK_PRICE}) · restores health`);
     this.ui.setPrompt(null);
+  }
+
+  // Opens the shop the player is standing in. Returns false when there is none.
+  useShop() {
+    const m = this.shops.nearby();
+    if (!m) return false;
+    const v = this.player.vehicle;
+    if (v && v.speed > 2) {
+      this.ui.notify('Stop first', 'Come to a stop inside the bay.', 'warn');
+      return true;
+    }
+    this.shopAt = m;
+    const data = this.shops.open(m);
+    if (!data) return true; // the garage stored the car straight away
+    this.state = 'paused';
+    this.pausedAt = performance.now();
+    this.input.enabled = false;
+    this.input.reset();
+    this.input.releaseLock();
+    this.audio.setActive(false);
+    this.ui.renderShop(data, this.cash);
+    this.ui.show('shop');
+    return true;
   }
 
   useNearby() {

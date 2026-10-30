@@ -2,7 +2,8 @@
 //  0 stars: police ignore the player
 //  1 star:  nearby units drive to where the crime happened and investigate
 //  2 stars: units actively pursue; officers chase on foot
-//  3 stars: more units, faster and willing to ram (roadblocks arrive in Stage 4)
+//  3 stars: more units, faster and willing to ram, roadblocks ahead of the player
+//  4 stars: every unit in the city, more roadblocks
 // Police only know where the player is while a unit can see them; otherwise they
 // search the last known position until the wanted level cools down.
 import * as THREE from 'three';
@@ -11,10 +12,11 @@ import { Character } from './player.js';
 import { nearestNode, validNode, nodeX, nodeZ, DIRS, laneOffset } from './roads.js';
 import { damp, dampAngle } from './utils.js';
 
-export const MAX_LEVEL = 3; // levels 4 and 5 are reserved for later stages
-const UNITS_FOR_LEVEL = [0, 1, 2, 4];
-const SIGHT_RANGE = [0, 60, 90, 120];
-const COOL_DOWN = [0, 10, 16, 24]; // seconds out of sight before the level clears
+export const MAX_LEVEL = 4;
+const UNITS_FOR_LEVEL = [0, 1, 2, 4, 5];
+const SIGHT_RANGE = [0, 60, 90, 120, 140];
+const COOL_DOWN = [0, 10, 16, 24, 30]; // seconds out of sight before the level clears
+const ROADBLOCK_EVERY = [0, 0, 0, 22, 14]; // seconds between roadblocks
 const OFFICER_LOOK = { skin: '#b07a55', shirt: '#dbe4f0', jacket: '#1e2a4a', pants: '#1e2a4a', shoes: '#111111', hair: '#1e2a4a', cap: true };
 
 export class Police {
@@ -30,6 +32,8 @@ export class Police {
     this.lastEscalate = -99;
     this.fleeT = 0;
     this.onLevelChange = null;
+    this.roadblocks = []; // { cars: [vehicle], x, z }
+    this.roadblockT = 8;
   }
 
   get searching() {
@@ -64,6 +68,7 @@ export class Police {
       u.v.siren = false;
       this.removeOfficer(u);
     }
+    for (const rb of this.roadblocks) for (const v of rb.cars) v.siren = false;
   }
 
   // Remove every unit at once (after an arrest or a blackout).
@@ -75,10 +80,24 @@ export class Police {
     }
     this.units = [];
     this.unseenT = 0;
+    this.clearRoadblocks();
+  }
+
+  clearRoadblocks() {
+    for (const rb of this.roadblocks) for (const v of rb.cars) if (v.role === 'police') this.g.vehicles.remove(v);
+    this.roadblocks = [];
   }
 
   // The player took this car: it stops being a police unit.
   release(vehicle) {
+    for (const rb of this.roadblocks) {
+      const k = rb.cars.indexOf(vehicle);
+      if (k >= 0) rb.cars.splice(k, 1);
+    }
+    if (vehicle.type === 'police' && vehicle.role === 'police') {
+      vehicle.siren = false;
+      vehicle.role = 'parked';
+    }
     const u = this.units.find((x) => x.v === vehicle);
     if (!u) return;
     this.removeOfficer(u);
@@ -86,6 +105,42 @@ export class Police {
     vehicle.siren = false;
     vehicle.role = 'parked';
     this.units.splice(this.units.indexOf(u), 1);
+  }
+
+  // Two cruisers parked across the road a couple of blocks ahead of a fleeing car.
+  placeRoadblock() {
+    const g = this.g;
+    const pv = g.player.vehicle;
+    if (!pv || pv.speed < 8) return false;
+    const dir = Math.abs(pv.vx) > Math.abs(pv.vz) ? (pv.vx > 0 ? 2 : 3) : pv.vz > 0 ? 0 : 1;
+    const d = DIRS[dir];
+    let [i, j] = nearestNode(pv.x, pv.z);
+    // the intersection two ahead of the player, then block the road just past it
+    for (let k = 0; k < 2; k++) {
+      if (!validNode(i + d.di, j + d.dj)) return false;
+      i += d.di;
+      j += d.dj;
+    }
+    if (!validNode(i + d.di, j + d.dj)) return false;
+    const cx = nodeX(i) + d.fx * 22;
+    const cz = nodeZ(j) + d.fz * 22;
+    if (this.roadblocks.some((rb) => Math.hypot(rb.x - cx, rb.z - cz) < 20)) return false;
+    const cars = [];
+    for (const off of [-3.4, 3.4]) {
+      const x = cx + d.fz * off;
+      const z = cz - d.fx * off;
+      if (!g.vehicles.isFree(x, z, 2.5)) continue;
+      // parked across the road, nose angled toward the player
+      const v = g.vehicles.spawn('police', x, z, Math.atan2(d.fz, -d.fx) + (off > 0 ? 0.35 : -0.35));
+      v.role = 'police';
+      v.siren = true;
+      v.asleep = true;
+      cars.push(v);
+    }
+    if (!cars.length) return false;
+    this.roadblocks.push({ cars, x: cx, z: cz });
+    g.ui.notify('Roadblock ahead', 'The police have blocked a road. Find another way.', 'warn');
+    return true;
   }
 
   update(dt) {
@@ -99,7 +154,8 @@ export class Police {
     this.checkT -= dt;
     if (this.level > 0 && this.checkT <= 0) {
       this.checkT = 0.2;
-      this.seeing = this.units.some((u) => this.canSee(u, target));
+      this.seeing = this.units.some((u) => this.canSee(u, target)) ||
+        this.roadblocks.some((rb) => rb.cars.some((v) => this.canSee({ v }, target)));
       if (this.seeing) this.lastSeen.copy(target);
     }
     if (this.level > 0) {
@@ -129,6 +185,21 @@ export class Police {
       if ((this.level === 0 || surplus) && d > 140 && !u.officer) {
         this.g.vehicles.remove(u.v);
         this.units.splice(i, 1);
+      }
+    }
+
+    // ---- roadblocks at 3+ stars; old ones are cleared once far behind
+    if (ROADBLOCK_EVERY[this.level]) {
+      this.roadblockT -= dt;
+      if (this.roadblockT <= 0 && this.placeRoadblock()) this.roadblockT = ROADBLOCK_EVERY[this.level];
+      else if (this.roadblockT <= 0) this.roadblockT = 2;
+    }
+    for (let k = this.roadblocks.length - 1; k >= 0; k--) {
+      const rb = this.roadblocks[k];
+      const d = Math.hypot(rb.x - target.x, rb.z - target.z);
+      if (d > 220 || (this.level === 0 && d > 90)) {
+        for (const v of rb.cars) if (v.role === 'police') g.vehicles.remove(v);
+        this.roadblocks.splice(k, 1);
       }
     }
 
@@ -227,6 +298,7 @@ export class Police {
 
     let speed;
     if (this.level === 1) speed = 15;
+    else if (this.level >= 4) speed = v.spec.maxSpeed;
     else speed = v.spec.maxSpeed * (this.level >= 3 ? 0.95 : 0.8);
 
     let tx = goal.x;

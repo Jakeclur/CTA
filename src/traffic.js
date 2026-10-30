@@ -7,8 +7,8 @@ import { DIRS, OPPOSITE, NODES, nodeX, nodeZ, validNode, nearestNode } from './r
 import { ROAD_HALF } from './config.js';
 import { makeRng } from './utils.js';
 
-const TYPES = ['compact', 'compact', 'sedan', 'sedan', 'sedan', 'suv', 'suv', 'van', 'sports'];
-const LANES = [2.2, 5.8]; // inner and outer lane, measured from the centre line
+const TYPES = ['compact', 'compact', 'sedan', 'sedan', 'sedan', 'suv', 'suv', 'van', 'sports', 'taxi', 'taxi', 'ute', 'ute', 'muscle'];
+const LANES = [2.2]; // inner lane: the outer lane is used for kerbside parking
 const STOP_BACK = ROAD_HALF + 4.6; // stop line distance from the intersection centre
 const SPAWN_MIN = 90;
 const SPAWN_MAX = 210;
@@ -104,7 +104,7 @@ export class Traffic {
 
   // Put a car on the road leaving node (i, j) in direction d.
   place(v, i, j, d, along) {
-    const lane = this.rng() < 0.6 ? LANES[0] : LANES[1];
+    const lane = this.rng.pick(LANES);
     const [x, z] = this.lanePoint(i, j, d, lane, along);
     v.setPose(x, z, Math.atan2(DIRS[d].fx, DIRS[d].fz), this.g.world.heightAt(x, z));
     const c = {

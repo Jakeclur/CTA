@@ -6,7 +6,7 @@ const $ = (id) => document.getElementById(id);
 
 export class UI {
   constructor() {
-    this.screens = ['loading', 'menu', 'pause', 'settings', 'controls', 'bigmap', 'missions'];
+    this.screens = ['loading', 'menu', 'pause', 'settings', 'controls', 'bigmap', 'missions', 'shop'];
     this.current = 'loading';
     this.returnTo = 'menu';
     this.handlers = {};
@@ -40,6 +40,7 @@ export class UI {
     click('btn-missions', () => this.emit('missions'));
     click('btn-missions-back', () => this.show('pause'));
     click('btn-abandon', () => this.emit('abandon'));
+    click('btn-shop-close', () => this.emit('closeShop'));
     click('btn-settings-back', () => this.show(this.returnTo));
     click('btn-controls-back', () => this.show(this.returnTo));
     click('btn-reset', () => {
@@ -230,14 +231,14 @@ export class UI {
     this.lastWanted = key;
     const el = $('wanted');
     el.innerHTML = '';
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 4; i++) {
       const s = document.createElement('span');
       s.className = i < level ? 'star on' : 'star';
       s.textContent = '★';
       el.append(s);
     }
     el.classList.toggle('flash', !!flashing && level > 0);
-    el.setAttribute('aria-label', `Wanted level ${level} of 5`);
+    el.setAttribute('aria-label', `Wanted level ${level} of 4`);
   }
 
   setObjective(label, dist) {
@@ -292,6 +293,50 @@ export class UI {
 
   missionResult(passed, title, sub) {
     this.banner(passed ? 'MISSION PASSED' : 'MISSION FAILED', passed ? sub : sub || title, passed ? '' : 'failed', 3800);
+  }
+
+  // data: { title, sub, note, rows: [{ name, text, price, swatch, action, disabled, run, extra }] }
+  renderShop(data, cash) {
+    $('shop-title').textContent = data.title;
+    $('shop-sub').textContent = data.sub || '';
+    $('shop-note').textContent = data.note || '';
+    $('shop-cash').textContent = `You have ${formatMoney(cash)}`;
+    const box = $('shop-list');
+    box.innerHTML = '';
+    for (const r of data.rows) {
+      const row = document.createElement('div');
+      row.className = 'mission-row shop-row';
+      if (r.swatch) {
+        const sw = document.createElement('i');
+        sw.className = 'swatch';
+        sw.style.background = r.swatch;
+        row.append(sw);
+      }
+      const b = document.createElement('b');
+      b.textContent = r.name;
+      const s = document.createElement('span');
+      s.textContent = r.text;
+      if (r.swatch) {
+        b.style.gridColumn = '2';
+        s.style.gridColumn = '2';
+      }
+      row.append(b, s);
+      if (r.price) {
+        const p = document.createElement('span');
+        p.className = 'price';
+        p.textContent = r.price;
+        row.append(p);
+      }
+      for (const a of [{ label: r.action, run: r.run, disabled: r.disabled }, r.extra].filter(Boolean)) {
+        const btn = document.createElement('button');
+        btn.className = 'btn';
+        btn.textContent = a.label;
+        btn.disabled = !!a.disabled;
+        btn.addEventListener('click', () => this.emit('shopAction', a.run));
+        row.append(btn);
+      }
+      box.append(row);
+    }
   }
 
   // list: [{ title, summary, status: 'done' | 'available' | 'locked' | 'active', where }]
