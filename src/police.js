@@ -17,7 +17,7 @@ const UNITS_FOR_LEVEL = [0, 1, 2, 4, 5];
 const SIGHT_RANGE = [0, 60, 90, 120, 140];
 const COOL_DOWN = [0, 10, 16, 24, 30]; // seconds out of sight before the level clears
 const ROADBLOCK_EVERY = [0, 0, 0, 22, 14]; // seconds between roadblocks
-const OFFICER_LOOK = { skin: '#b07a55', shirt: '#dbe4f0', jacket: '#1e2a4a', pants: '#1e2a4a', shoes: '#111111', hair: '#1e2a4a', cap: true };
+const OFFICER_LOOK = { skin: '#b07a55', shirt: '#dbe4f0', jacket: '#1e2a4a', pants: '#1e2a4a', shoes: '#111111', hair: '#2a1a12', cap: true, capColour: '#1e2a4a' };
 
 export class Police {
   constructor(game) {

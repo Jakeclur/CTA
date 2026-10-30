@@ -2,7 +2,7 @@
 // and the game states (menu, playing, paused, map, blackout).
 import * as THREE from 'three';
 import { buildWorld, STREETS_NS, STREETS_EW } from './world.js';
-import { buildEnvironment } from './sky.js';
+import { buildEnvironment, sunDirection } from './sky.js';
 import { setMaxAnisotropy } from './textures.js';
 import { Input } from './input.js';
 import { Player } from './player.js';
@@ -21,6 +21,7 @@ import { Audio } from './audio.js';
 import { Effects } from './effects.js';
 import { setVehicleNight } from './vehicles.js';
 import { Shops } from './shop.js';
+import { PostFX } from './post.js';
 import { PerfMonitor, frameStats } from './perf.js';
 import { loadSettings, saveSettings, loadProgress, saveProgress, clearProgress, hasProgress, DEFAULT_PROGRESS } from './save.js';
 import { ROAD_LINES, ROAD_HALF, CITY_NAME } from './config.js';
@@ -30,11 +31,13 @@ window.__ctaStarted = true;
 // Quality presets. Medium is tuned for laptops with built-in graphics; High and
 // Ultra are for dedicated graphics cards. lodCars / lodPeds: metres from the
 // camera beyond which cars and people switch to their simple instanced versions.
+// post: the post-processing level (see post.js); High and Ultra smooth edges there
+// with multisampling, so the canvas itself is never antialiased.
 const QUALITY = {
-  low: { label: 'Low', pixelRatio: 0.75, shadows: false, shadowSize: 1024, antialias: false, lodCars: 45, lodPeds: 25 },
-  medium: { label: 'Medium', pixelRatio: 1, shadows: true, shadowSize: 1024, antialias: false, lodCars: 70, lodPeds: 35 },
-  high: { label: 'High', pixelRatio: 1.5, shadows: true, shadowSize: 2048, antialias: true, lodCars: 100, lodPeds: 50 },
-  ultra: { label: 'Ultra', pixelRatio: 2, shadows: true, shadowSize: 4096, antialias: true, lodCars: 150, lodPeds: 70 },
+  low: { label: 'Low', pixelRatio: 0.75, shadows: false, shadowSize: 1024, antialias: false, lodCars: 45, lodPeds: 25, post: 'off' },
+  medium: { label: 'Medium', pixelRatio: 1, shadows: true, shadowSize: 1024, antialias: false, lodCars: 70, lodPeds: 35, post: 'medium' },
+  high: { label: 'High', pixelRatio: 1.5, shadows: true, shadowSize: 2048, antialias: false, lodCars: 100, lodPeds: 50, post: 'high' },
+  ultra: { label: 'Ultra', pixelRatio: 2, shadows: true, shadowSize: 4096, antialias: false, lodCars: 150, lodPeds: 70, post: 'ultra' },
 };
 
 const BENCH_SECONDS = 30;
@@ -66,6 +69,7 @@ class Game {
     this.nav = null; // what the GPS is currently guiding to
     this.navT = 0;
     this._pp = new THREE.Vector3();
+    this._sun = new THREE.Vector3();
     this.perf = new PerfMonitor();
     this.basePixelRatio = 1;
     this.clock = 9; // hours
@@ -88,10 +92,12 @@ class Game {
     r.toneMappingExposure = 1.05;
     r.shadowMap.enabled = true;
     r.shadowMap.type = THREE.PCFSoftShadowMap;
+    r.info.autoReset = false; // post-processing renders several passes per frame
     setMaxAnisotropy(Math.min(8, r.capabilities.getMaxAnisotropy()));
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(this.settings.fov, innerWidth / innerHeight, 0.3, 1500);
+    this.post = new PostFX(r, this.scene, this.camera);
     this.resize();
     window.addEventListener('resize', () => this.resize());
 
@@ -172,6 +178,7 @@ class Game {
     if (car) car.syncModel(0.016);
     this.world.setNight(1);
     this.renderer.compile(this.scene, this.camera);
+    this.post.render(0); // builds the post-processing shaders too
     if (car) {
       car.driver = null;
       car.model.head.material = head;
@@ -188,6 +195,7 @@ class Game {
     this.camera.aspect = innerWidth / innerHeight;
     this.camera.updateProjectionMatrix();
     if (this.effects) this.effects.setViewport(this.renderer.domElement.height, this.settings.fov);
+    this.post.setSize();
     if (this.state === 'map') this.drawBigMap();
   }
 
@@ -196,6 +204,7 @@ class Game {
     this.basePixelRatio = Math.min(window.devicePixelRatio || 1, q.pixelRatio);
     if (!s.dynamicRes) this.perf.scale = 1;
     this.setResolution(this.perf.scale);
+    this.post.configure(q.post);
     this.vehicles.lodDistance = q.lodCars;
     this.peds.lodDistance = q.lodPeds;
     if (this.renderer.shadowMap.enabled !== q.shadows) {
@@ -221,6 +230,7 @@ class Game {
   // Render resolution = the preset's pixel ratio x the dynamic resolution scale.
   setResolution(scale) {
     this.renderer.setPixelRatio(this.basePixelRatio * scale);
+    this.post.setSize();
     if (this.effects) this.effects.setViewport(this.renderer.domElement.height, this.settings.fov);
   }
 
@@ -568,7 +578,8 @@ class Game {
     const focus = this.state === 'menu' ? MENU_FOCUS : this.player.vehicle ? this.player.vehicle.model.root.position : this.player.pos;
     this.env.update(dt, this.time, this.camera, focus);
     this.vehicles.updateLod(this.camera.position, this.player.vehicle);
-    this.renderer.render(this.scene, this.camera);
+    this.renderer.info.reset();
+    this.post.render(real);
     if (this.bench && this.state === 'benchmark') {
       this.bench.calls += this.renderer.info.render.calls;
       this.bench.frames++;
@@ -924,6 +935,7 @@ class Game {
     this.world.setNight(k);
     setVehicleNight(k);
     this.effects.setTint(k);
+    this.post.setTime(k, sunDirection(hours, this._sun).y);
     this.nightK = k;
   }
 

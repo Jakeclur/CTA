@@ -70,7 +70,7 @@ void main() {
 
 // Colours at key sun heights; everything in between is blended.
 const KEYS = [
-  { y: -0.25, top: '#040814', horizon: '#121a30', ground: '#0a0e18', cloud: '#1a2236', glow: '#000000', sun: '#8fa8ff', sunI: 0.35, hemiSky: '#3d5287', hemiGround: '#1a1a22', hemiI: 0.35, exposure: 1.1 },
+  { y: -0.25, top: '#040814', horizon: '#121a30', ground: '#0a0e18', cloud: '#1a2236', glow: '#000000', sun: '#8fa8ff', sunI: 0.4, hemiSky: '#3d5287', hemiGround: '#2a2622', hemiI: 0.5, exposure: 1.3 },
   { y: -0.05, top: '#101c3c', horizon: '#3b3f5e', ground: '#1c1f2c', cloud: '#3a3b52', glow: '#5a2a3a', sun: '#8fa8ff', sunI: 0.25, hemiSky: '#56628f', hemiGround: '#2a2630', hemiI: 0.35, exposure: 1.1 },
   { y: 0.06, top: '#3c5591', horizon: '#f0a070', ground: '#7d6f6a', cloud: '#e8a888', glow: '#ff8a40', sun: '#ffa060', sunI: 1.4, hemiSky: '#c9a890', hemiGround: '#5a4a40', hemiI: 0.45, exposure: 1.05 },
   { y: 0.3, top: '#3f79c4', horizon: '#cfdbe6', ground: '#a9b4bd', cloud: '#f4f6f8', glow: '#ffcc99', sun: '#fff1dc', sunI: 2.6, hemiSky: '#cfe0ff', hemiGround: '#7a6a55', hemiI: 0.55, exposure: 1.05 },

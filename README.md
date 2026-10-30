@@ -67,6 +67,15 @@ All four planned stages are built: the playable city (Stage 1), missions and pol
 * **Settings:** graphics quality (low, medium, high or ultra), dynamic resolution, draw distance, field of view, mouse sensitivity, invert Y, camera auto-centre, performance stats, time of day (cycle, always day or always night), traffic and pedestrian density (off, light, normal, busy) and volume.
 * **Saving:** settings, cash, health, position, the time of day, completed missions and your garage are saved in the browser's `localStorage` every 20 seconds, when you pause, when you finish a mission or buy something, and when you quit. **Continue** on the main menu picks up where you left off.
 
+### Graphics (Phase 2)
+
+* **Cars** are lofted from rounded cross-sections that follow each model's side profile, with real wheel arches, a separate cabin with glass and painted pillars, clear-coat metallic paint, five-spoke alloy wheels with tyres and brake discs, lamp lenses, grilles, mirrors, door handles and exhausts. Headlights throw soft light beams at night, and brake and police lights glow.
+* **People** are built from smooth tapered limbs with shoulders, hands, faces (eyes, brows, nose, ears, lips) and several hair styles, in male and female builds. Clothing varies between jackets over shirts, T-shirts with bare arms, trousers and shorts.
+* **Buildings** have relief maps for recessed windows, frames, sills, louvred shutters, brickwork and weatherboards, real plinths, cornices and floor ledges, and vertical fins on glass towers. Walls darken with grime near the street and pick up faint rain streaks. At night each lit room shows furniture, blinds or a television's glow.
+* **Shop fronts** were rebuilt: stone piers, aluminium-framed display windows with fashion racks, cafe counters, grocery shelves or electronics inside, glass doors, and only the fascia in the shop's colour. Interiors light up after dark.
+* **Streets**: asphalt with aggregate grain, cracks, patch repairs and oil stains (with a normal map), worn lane paint, concrete gutters, manhole covers, storm drains, and pavement slabs with joints, chips and stains.
+* **Camera finish** (Medium and up): bloom around bright lights, filmic tone mapping, a colour grade that warms at golden hour, a gentle vignette and fine film grain. High and Ultra smooth edges with multisampling; Ultra adds ambient occlusion (soft shadows in corners and under cars), which costs a lot more GPU time. Low renders without any of this.
+
 ### Performance
 
 * **Quality presets:** Low and Medium are tuned for laptops with built-in graphics. High and Ultra raise the resolution, shadow detail, shadow range and the distance at which cars and people keep full detail, for gaming PCs.
@@ -79,14 +88,15 @@ All four planned stages are built: the playable city (Stage 1), missions and pol
 ## Known limitations
 
 * AI drivers keep to the inner lane and do not give way when turning across oncoming traffic, so they occasionally bump into each other at intersections.
-* Only your own car's headlight lights up the road. Other cars' lights glow but do not cast light.
+* Only your own car's headlight lights up the road. Other cars show glowing lamps and light beams in the air but do not light the ground.
 * There are no weapons. The police can only arrest you on foot; in a car you escape them or get boxed in.
 * Cars do not take damage or break down (your health does). The car physics are arcade-style and cars cannot flip.
 * Traffic, pedestrians and parked cars are not saved; the city refills around you when you load. Owned cars return to your garage when you reload.
 * Pedestrians only cross the road at the corners of blocks, and a few can get briefly stuck against street furniture before they find their way around it.
 * Low kerbs and steps are smoothed rather than collided with, and you cannot climb onto objects.
 * Frame rates have not been measured on real hardware yet: automated tests run in a software renderer at a few frames per second. Run the benchmark on your own machine to see how each preset performs.
-* Anti-aliasing only changes after a page reload, because WebGL sets it when the page starts.
+* Everything is still generated in code from simple shapes and canvas textures (no scanned textures or artist-made 3D models), so the look is detailed but stylised rather than photo-real.
+* Ultra's ambient occlusion draws the scene a second time, so it is only meant for fast graphics cards.
 * Sound starts after you click **Play** or **Continue** because browsers block audio until you interact with the page.
 * Built and tested for desktop browsers with a keyboard and mouse. Touch controls are not supported.
 
@@ -121,6 +131,7 @@ index.html            Page layout: canvas, menus, HUD; loads Three.js through an
 style.css             All menu and HUD styling
 lib/
   three.module.min.js Three.js r160 (MIT licence), bundled so the game works offline
+  addons/             Three.js r160 add-ons used for post-processing and rounded boxes
   THREE-LICENSE.txt
 src/
   main.js             Entry point: renderer, game states, game loop, cars, crimes, navigation, saving
@@ -128,12 +139,15 @@ src/
   world.js            Procedural city: districts, blocks, buildings, roads, docks, collisions, map data
   props.js            Instanced street furniture, trees, traffic lights and their timing, signs, skyline
   sky.js              Sky dome with clouds and stars, day/night cycle, sun and shadows, fog, the sea
-  textures.js         Canvas-generated textures: facades with lit windows, shop fronts, roads, signs
+  textures.js         Canvas-generated textures and relief maps: facades, shop fronts, asphalt, paving, signs
   geometry.js         GeoBuilder: merges thousands of boxes and quads into a few draw calls
   collision.js        Static collision boxes in a spatial grid; circle push-out and ray casts
-  player.js           Character model (shared with pedestrians and police), animation, on-foot movement
+  player.js           Character rig (shared with pedestrians and police), animation, on-foot movement
+  characterModel.js   Smooth character body parts, faces, hair and clothing
   camera.js           Third-person camera with mouse orbit, re-centring and wall avoidance
-  vehicles.js         Vehicle types, procedural car models, lights, driving physics and car collisions
+  vehicles.js         Vehicle types, car model assembly, lights, driving physics and car collisions
+  carModel.js         Lofted car bodies, cabins, wheels and door panels
+  post.js             Post-processing: bloom, ambient occlusion, tone mapping, colour grade
   roads.js            The road network as a graph: lanes, route finding and GPS routes
   ai.js               AI driving: steering towards a point, following a route, getting unstuck
   traffic.js          AI traffic: lanes, turns, traffic lights, queueing, spawning around the player
@@ -172,6 +186,6 @@ Add an entry to `VEHICLE_TYPES` in `src/vehicles.js` with its size, its shape (h
 
 ## Next steps
 
-The four planned stages are done, and work has started on the graphics and playability plan: Phase 1 (performance base) is built. Phases 2 to 5 cover the look (bloom, colour grading, better car models), driving feel (handling, damage, gamepad), a livelier world (rain, smarter traffic and police) and more things to do. An older suggestion for a next prompt:
+The four planned stages are done, and work has started on the graphics and playability plan: Phase 1 (performance base) and Phase 2 (the look) are built. Phases 3 to 5 cover driving feel (handling, damage, gamepad), a livelier world (rain, smarter traffic and police) and more things to do. An older suggestion for a next prompt:
 
 > Continue the CTA project in this repository (read the README first; all four stages are built). Add **Stage 5: polish and depth**. Give AI drivers right-of-way rules at intersections so they wait for oncoming traffic before turning across it, and let them use both lanes with lane changes around parked cars. Add a simple vehicle damage model (smoke and reduced top speed when a car is badly damaged, repairs at Solano Customs). Add two more missions using the existing step types, including one at night. Add touch controls for tablets. Keep every existing feature working, test for console errors, and update the README.
