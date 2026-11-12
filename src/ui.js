@@ -133,7 +133,13 @@ export class UI {
     const traffic = $('set-traffic');
     const vol = $('set-volume');
     const dyn = $('set-dynres');
+    const weather = $('set-weather');
+    const engineVol = $('set-engine-volume');
+    const ambienceVol = $('set-ambience-volume');
     const sync = () => {
+      weather.value = settings.weather;
+      engineVol.value = settings.engineVolume;
+      ambienceVol.value = settings.ambienceVolume;
       dyn.checked = settings.dynamicRes;
       time.value = settings.timeMode;
       traffic.value = settings.traffic;
@@ -151,6 +157,9 @@ export class UI {
       $('out-sens').textContent = `${Number(settings.sensitivity).toFixed(1)}x`;
     };
     const read = () => {
+      settings.weather = weather.value;
+      settings.engineVolume = Number(engineVol.value);
+      settings.ambienceVolume = Number(ambienceVol.value);
       settings.quality = q.value;
       settings.drawDistance = Number(draw.value);
       settings.fov = Number(fov.value);
@@ -165,7 +174,7 @@ export class UI {
       sync();
       onChange(settings);
     };
-    for (const el of [q, draw, fov, sens, inv, auto, fps, time, traffic, vol, dyn]) el.addEventListener('input', read);
+    for (const el of [q, draw, fov, sens, inv, auto, fps, time, traffic, vol, dyn, weather, engineVol, ambienceVol]) el.addEventListener('input', read);
     this.syncSettings = sync;
     sync();
   }
@@ -285,7 +294,12 @@ export class UI {
       el.append(s);
     }
     el.classList.toggle('flash', !!flashing && level > 0);
-    el.setAttribute('aria-label', `Wanted level ${level} of 4`);
+    el.setAttribute('aria-label', `Wanted level ${level} of 4${flashing ? ', searching last known position' : ''}`);
+    if (level > 0) {
+      const status = document.createElement('small');
+      status.textContent = flashing ? 'SEARCHING' : 'PURSUIT';
+      el.append(status);
+    }
   }
 
   setObjective(label, dist) {

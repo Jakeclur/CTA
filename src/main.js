@@ -1,3 +1,5 @@
+import { GroundShadows } from './groundShadows.js';
+import { Weather } from './weather.js';
 // Entry point: sets up rendering, builds the world, and runs the game loop
 // and the game states (menu, playing, paused, map, blackout).
 import * as THREE from 'three';
@@ -46,7 +48,6 @@ const BENCH_KEY = 'cta.bench.v1';
 // The benchmark flies along these roads at night: downtown, midtown, the park and the seafront.
 const BENCH_PATH = [[-240, -80], [0, -80], [0, 80], [80, 80], [80, 240], [-80, 240], [-80, 320], [240, 320]];
 
-const VEHICLE_STEP = 1 / 120;
 const AUTOSAVE_SECONDS = 20;
 
 class Game {
@@ -131,6 +132,13 @@ class Game {
     this.input.onLockChange = (locked) => {
       if (!locked && this.state === 'playing' && !this.input.dragging) this.pause();
     };
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        this.input.reset();
+        this.vehicles.accumulator = 0;
+        if (this.state === 'playing') this.pause();
+      }
+    });
     this.rig = new CameraRig(this.camera);
     this.police = new Police(this);
     this.police.onLevelChange = (level, before, reason) => this.onWantedChange(level, before, reason);
@@ -139,11 +147,18 @@ class Game {
     this.traffic = new Traffic(this);
     this.peds = new Pedestrians(this);
     this.effects = new Effects(this.scene);
+    this.weather = new Weather(this.scene, this.world);
+    this.groundShadows = new GroundShadows(this.scene);
     this.ambient = new Ambient(this);
     // one headlight beam for the player's car; always in the scene so turning it
     // on at dusk does not force every material to recompile
     this.headlight = new THREE.SpotLight('#fff3d6', 0, 60, 0.5, 0.6, 1.2);
     this.scene.add(this.headlight, this.headlight.target);
+    this.trafficLights = Array.from({ length: 2 }, () => {
+      const light = new THREE.SpotLight('#ffe6c2', 0, 35, 0.48, 0.7, 1.5);
+      this.scene.add(light, light.target);
+      return light;
+    });
     this.bindBigMap();
 
     this.ui.bindSettings(this.settings, (s) => this.applySettings(s));
@@ -226,6 +241,9 @@ class Game {
     this.traffic.setDensity(s.traffic);
     this.peds.setDensity(s.traffic);
     this.audio.setVolume(s.volume);
+    this.audio.engineVolume = s.engineVolume;
+    this.audio.ambienceVolume = s.ambienceVolume;
+    this.weather.configure(s.weather, s.quality);
     saveSettings(s);
   }
 
@@ -450,13 +468,31 @@ class Game {
   tryEnter() {
     const v = this.vehicles.nearestEnterable(this.player.pos, 2.6);
     if (!v) return false;
+    if (v.health <= 0) { this.ui.notify('Wrecked vehicle', 'Choose another car.', 'warn'); return true; }
     if (v.speed > 3) {
       this.ui.notify('Too fast', 'Wait for the car to stop first.', 'warn');
       return true;
     }
+    const door = v.doorPoint(new THREE.Vector3(), 0.55);
+    if (!this.isFreeSpot(door.x, door.z, v)) { this.ui.notify('Door blocked', 'Approach a car with a clear driver door.', 'warn'); return true; }
     this.transition = { type: 'enter', t: 0, v, from: this.player.pos.clone(), door: v.doorPoint(new THREE.Vector3(), 0.55) };
     v.doorTarget = 1;
     return true;
+  }
+
+  recoverVehicle() {
+    const v = this.player.vehicle;
+    if (!v || this.transition) return;
+    if (v.speed > 2 || !v.grounded) {
+      this.ui.notify('Stop to recover', 'Recovery is available once the car is on the ground and below 7 km/h.', 'warn');
+      return;
+    }
+    const x = v.x, z = v.z;
+    v.setPose(x, z, v.heading, this.world.heightAt(x, z));
+    v.collideStatic(this.world.colliders);
+    v.syncModel(0);
+    this.rig.snap(new THREE.Vector3(v.x, v.y + 1.7, v.z), v.heading);
+    this.ui.notify('Vehicle recovered', 'Damage and mission progress are retained.', '');
   }
 
   tryExit() {
@@ -500,15 +536,26 @@ class Game {
     tr.t += dt;
     const p = this.player;
     const v = tr.v;
+    if (!this.vehicles.list.includes(v) || (tr.type === 'enter' && (v.health <= 0 || v.speed > 3))) {
+      v.doorTarget = 0;
+      this.transition = null;
+      if (!p.vehicle) p.setVisible(true);
+      return;
+    }
     if (tr.type === 'enter') {
-      if (tr.t < 0.3) {
-        const k = tr.t / 0.3;
+      if (tr.t < 0.55) {
+        const k = Math.min(1, tr.t / 0.4);
         p.pos.lerpVectors(tr.from, tr.door, k);
         p.pos.y = this.world.heightAt(p.pos.x, p.pos.z);
         p.facing = Math.atan2(v.x - p.pos.x, v.z - p.pos.z);
         p.mesh.position.copy(p.pos);
         p.mesh.rotation.y = p.facing;
-        p.animate(dt, 2.5);
+        p.animate(dt, tr.t < 0.4 ? 2.5 : 0);
+        if (tr.t >= 0.4) {
+          p.rig.armR.shoulder.rotation.x = -0.8;
+          p.rig.armR.elbow.rotation.x = -1.1;
+          p.rig.hips.rotation.x = 0.18;
+        }
       } else if (!p.vehicle) {
         p.vehicle = v;
         v.driver = p;
@@ -537,10 +584,16 @@ class Game {
         v.ctrl = null;
         this.ui.notify(v.name, VEHICLE_HINT, '');
       }
-      if (tr.t > 0.45) v.doorTarget = 0;
-      if (tr.t > 0.7) this.transition = null;
+      if (tr.t > 0.75) v.doorTarget = 0;
+      if (tr.t > 1) this.transition = null;
     } else {
       if (tr.t > 0.22 && p.vehicle) {
+        if (!this.isFreeSpot(tr.to.x, tr.to.z, v)) {
+          v.doorTarget = 0;
+          this.transition = null;
+          this.ui.notify('Exit blocked', 'Wait for the space beside the car to clear.', 'warn');
+          return;
+        }
         p.vehicle = null;
         v.driver = null;
         p.setPosition(tr.to.x, tr.to.y, tr.to.z, v.heading);
@@ -568,7 +621,7 @@ class Game {
   frame(now) {
     requestAnimationFrame((t) => this.frame(t));
     const real = Math.max(0, (now - this.last) / 1000);
-    const dt = Math.min(0.1, real);
+    const dt = document.hidden || real > 0.5 ? 0 : Math.min(0.1, real);
     this.last = now;
     this.time += dt;
     this.perf.frame(real);
@@ -589,8 +642,23 @@ class Game {
     if (this.state !== 'paused' && this.state !== 'map') this.ambient.update(dt, this.time);
     this.effects.update(this.state === 'playing' || this.state === 'menu' || this.state === 'blackout' ? dt : 0);
     const focus = this.state === 'menu' ? MENU_FOCUS : this.player.vehicle ? this.player.vehicle.model.root.position : this.player.pos;
-    this.env.update(dt, this.time, this.camera, focus);
+    this.env.update(dt, this.time, this.camera, focus, this.weather.amount);
+    this.weather.update(this.state === 'paused' || this.state === 'map' ? 0 : dt, this.time, this.camera);
     this.vehicles.updateLod(this.camera.position, this.player.vehicle);
+    this.groundShadows.update(this);
+    const nearbyLights = this.nightK > 0.25 && ['high', 'ultra'].includes(this.settings.quality)
+      ? this.vehicles.list.filter(v => v !== this.player.vehicle && (v.ctrl || v.driver) && Math.hypot(v.x - this.camera.position.x, v.z - this.camera.position.z) < 45)
+        .sort((a, b) => Math.hypot(a.x - this.camera.position.x, a.z - this.camera.position.z) - Math.hypot(b.x - this.camera.position.x, b.z - this.camera.position.z)).slice(0, 2)
+      : [];
+    this.trafficLights.forEach((light, index) => {
+      const v = nearbyLights[index];
+      light.intensity = v ? 18 * this.nightK : 0;
+      if (v) {
+        const x = Math.sin(v.heading), z = Math.cos(v.heading);
+        light.position.set(v.x + x * v.spec.L / 2, v.y + 0.65, v.z + z * v.spec.L / 2);
+        light.target.position.set(v.x + x * 18, v.y, v.z + z * 18);
+      }
+    });
     this.renderer.info.reset();
     this.post.render(real);
     if (this.bench && this.state === 'benchmark') {
@@ -666,8 +734,7 @@ class Game {
     this.camera.lookAt(b.look.x, 3, b.look.z);
     this.camera.fov = this.settings.fov;
     this.camera.updateProjectionMatrix();
-    const steps = Math.max(1, Math.ceil(dt / VEHICLE_STEP / 2));
-    for (let i = 0; i < steps; i++) this.vehicles.update(dt / steps, null, null);
+    this.vehicles.update(dt, null, null);
     this.vehicles.hits.length = 0;
     this.traffic.update(dt);
     this.peds.update(dt);
@@ -765,14 +832,13 @@ class Game {
         handbrake: input.down('Space'),
       };
     }
-    const steps = Math.max(1, Math.ceil(dt / VEHICLE_STEP));
-    let impact = 0;
-    for (let i = 0; i < steps; i++) impact = Math.max(impact, this.vehicles.update(dt / steps, v, ctrl));
+    const impact = this.vehicles.update(dt, v, ctrl);
 
     if (this.transition) this.updateTransition(dt);
     else if (v) {
       p.pos.set(v.x, v.y, v.z);
       this.stats.distanceDriven += v.speed * dt;
+      if (live && input.hit('KeyV')) this.recoverVehicle();
       if (live && input.hit('KeyE')) this.tryExit();
       if (live && input.hit('KeyF')) this.useShop();
       if (live && input.hit('KeyC')) {
@@ -824,7 +890,7 @@ class Game {
     if (cv) {
       const root = cv.model.root.position;
       this.rig.update(dt, now, new THREE.Vector3(root.x, root.y + cv.spec.H + 0.5, root.z), w.colliders, {
-        dist: cv.spec.L * 1.15 + 3.6, followYaw: cv.heading, speed: cv.speed, vehicle: true,
+        dist: cv.spec.L * 1.15 + 3.6, followYaw: cv.heading, speed: cv.forwardSpeed, vehicle: true, turnRate: cv.angVel,
       });
     } else {
       this.rig.update(dt, now, new THREE.Vector3(p.pos.x, p.pos.y + 1.55, p.pos.z), w.colliders, {
@@ -867,9 +933,9 @@ class Game {
     if (this.state !== 'playing' || this.transition) return this.ui.setPrompt(null);
     const shop = this.shops.nearby();
     if (shop) return this.ui.setPrompt(this.shops.prompt(shop));
-    if (p.vehicle) return this.ui.setPrompt(null);
+    if (p.vehicle) return this.ui.setPrompt(p.vehicle.speed < 2 && Math.abs(p.vehicle.chassisRoll) > 1 ? '<kbd>V</kbd> Recover vehicle' : null);
     const v = this.vehicles.nearestEnterable(p.pos, 2.6);
-    if (v) return this.ui.setPrompt(`<kbd>E</kbd> Enter ${v.name}`);
+    if (v && v.speed <= 3 && v.health > 0) return this.ui.setPrompt(`<kbd>E</kbd> Enter ${v.name}`);
     const m = this.vending.nearest(p.pos);
     if (m) return this.ui.setPrompt(`<kbd>F</kbd> Buy a Sunset Cola ($${DRINK_PRICE}) · restores health`);
     this.ui.setPrompt(null);
@@ -1036,6 +1102,7 @@ class Game {
       beach: Math.max(0, Math.min(1, (pos.z - 280) / 80)),
       horn,
       area: this.world.areaAt(pos.x, pos.z),
+      rain: this.weather.amount,
       night: this.nightK || 0,
       dt: live ? dt : 0,
     });
@@ -1168,7 +1235,7 @@ class Game {
 }
 
 const MENU_FOCUS = new THREE.Vector3(0, 0, 40);
-const VEHICLE_HINT = 'W/S drive and brake, A/D steer, Space handbrake, H horn, E to get out.';
+const VEHICLE_HINT = 'W/S drive and brake, A/D steer, Space handbrake, H horn, E to get out, V to recover when stopped.';
 
 // Name of the street the point is on (or null)
 function streetAt(x, z) {

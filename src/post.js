@@ -15,10 +15,10 @@ const GradeShader = {
   uniforms: {
     tDiffuse: { value: null },
     contrast: { value: 1.06 },
-    saturation: { value: 1.08 },
+    saturation: { value: 1.03 },
     warmth: { value: 0.0 }, // + warm highlights, cool shadows (golden hour)
-    vignette: { value: 0.28 },
-    grain: { value: 0.025 },
+    vignette: { value: 0.16 },
+    grain: { value: 0.008 },
     time: { value: 0 },
     aspect: { value: 1 },
   },

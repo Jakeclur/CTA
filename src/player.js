@@ -245,6 +245,9 @@ export class Player extends Character {
     this.vel = new THREE.Vector3();
     this.facing = 0;
     this.health = 100;
+    this.jumpBuffer = 0;
+    this.coyoteTime = 0;
+    this.landingBlend = 0;
     this.vehicle = null; // vehicle currently driven
   }
 
@@ -280,12 +283,17 @@ export class Player extends Character {
     this.vel.x = damp(this.vel.x, dx * target, accel, dt);
     this.vel.z = damp(this.vel.z, dz * target, accel, dt);
 
-    if (this.grounded && input.hit('Space')) {
+    this.jumpBuffer = input.hit('Space') ? 0.12 : Math.max(0, this.jumpBuffer - dt);
+    this.coyoteTime = this.grounded ? 0.1 : Math.max(0, this.coyoteTime - dt);
+    if (this.coyoteTime > 0 && this.jumpBuffer > 0) {
+      this.jumpBuffer = this.coyoteTime = 0;
       this.vel.y = JUMP_SPEED;
       this.grounded = false;
     }
     this.vel.y -= GRAVITY * dt;
 
+    const beforeX = this.pos.x, beforeZ = this.pos.z;
+    const wasGrounded = this.grounded;
     this.pos.x += this.vel.x * dt;
     this.pos.z += this.vel.z * dt;
     this.pos.y += this.vel.y * dt;
@@ -296,6 +304,7 @@ export class Player extends Character {
     const ground = world.heightAt(this.pos.x, this.pos.z);
     if (this.pos.y <= ground) {
       this.pos.y = ground;
+      if (!wasGrounded) this.landingBlend = clamp(-this.vel.y * 0.012, 0, 0.16);
       this.vel.y = 0;
       this.grounded = true;
     } else if (this.grounded && this.pos.y - ground < 0.3 && this.vel.y <= 0) {
@@ -305,12 +314,14 @@ export class Player extends Character {
       this.grounded = false;
     }
 
-    const speed = Math.hypot(this.vel.x, this.vel.z);
+    const speed = dt > 0 ? Math.hypot(this.pos.x - beforeX, this.pos.z - beforeZ) / dt : 0;
     if (len > 0 && speed > 0.3) this.facing = dampAngle(this.facing, Math.atan2(this.vel.x, this.vel.z), 12, dt);
 
     this.mesh.position.copy(this.pos);
     this.mesh.rotation.y = this.facing;
     this.animate(dt, speed);
+    this.landingBlend = damp(this.landingBlend, 0, 10, dt);
+    this.rig.body.position.y -= this.landingBlend;
     return speed;
   }
 }

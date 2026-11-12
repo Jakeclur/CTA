@@ -31,6 +31,42 @@ function noise(ctx, w, h, rng, amount, alpha = 0.08, size = 2) {
   }
 }
 
+// Procedural ground maps repeat over large areas. Blend only a narrow edge
+// band so the first and last texels meet cleanly without softening the detail
+// across the rest of the tile.
+function blendRepeatEdges(ctx, size, band = 64) {
+  const image = ctx.getImageData(0, 0, size, size);
+  const data = image.data;
+  const pixel = (x, y, c) => (y * size + x) * 4 + c;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < band; x++) {
+      const weight = 0.5 * (1 - x / band);
+      const opposite = size - 1 - x;
+      for (let c = 0; c < 3; c++) {
+        const a = pixel(x, y, c), b = pixel(opposite, y, c);
+        const mix = data[a] * (1 - weight) + data[b] * weight;
+        const other = data[b] * (1 - weight) + data[a] * weight;
+        data[a] = mix;
+        data[b] = other;
+      }
+    }
+  }
+  for (let x = 0; x < size; x++) {
+    for (let y = 0; y < band; y++) {
+      const weight = 0.5 * (1 - y / band);
+      const opposite = size - 1 - y;
+      for (let c = 0; c < 3; c++) {
+        const a = pixel(x, y, c), b = pixel(x, opposite, c);
+        const mix = data[a] * (1 - weight) + data[b] * weight;
+        const other = data[b] * (1 - weight) + data[a] * weight;
+        data[a] = mix;
+        data[b] = other;
+      }
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+}
+
 // ---------------------------------------------------------------- building facades
 // Each facade texture covers 4 bays x 4 floors (14m x 14m of wall).
 // Walls are drawn light so per-building vertex colours can tint them.
@@ -620,6 +656,9 @@ export function makeAsphalt() {
     r.fillStyle = rg;
     r.fillRect(x - rad, y - rad, rad * 2, rad * 2);
   }
+  blendRepeatEdges(g, S);
+  blendRepeatEdges(h, S);
+  blendRepeatEdges(r, S);
   return { map: toTexture(c), normalMap: heightToNormal(hc, 3), roughnessMap: toTexture(rc, { srgb: false }) };
 }
 

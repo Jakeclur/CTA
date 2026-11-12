@@ -9,6 +9,8 @@ export class Audio {
     this.ctx = null;
     this.volume = 0.7;
     this.muted = false;
+    this.engineVolume = 1;
+    this.ambienceVolume = 1;
   }
 
   unlock() {
@@ -63,6 +65,13 @@ export class Audio {
     waveF.connect(this.waveGain);
     loopNoise(ctx, this.noise, waveF);
 
+    this.rainGain = gain(ctx, 0, this.master);
+    const rainFilter = ctx.createBiquadFilter();
+    rainFilter.type = 'lowpass';
+    rainFilter.frequency.value = 3600;
+    rainFilter.connect(this.rainGain);
+    loopNoise(ctx, this.noise, rainFilter);
+
     // horn: two square waves, gated
     this.hornGain = gain(ctx, 0, this.master);
     const hornF = ctx.createBiquadFilter();
@@ -88,7 +97,7 @@ export class Audio {
   // Continuous sounds, called every frame.
   // car: { speed, maxSpeed, throttle, slip } or null; siren: 0..1 loudness;
   // beach: 0..1 closeness to the sea; horn: bool
-  update(t, { car, siren, beach, horn, area, night = 0, dt = 0 }) {
+  update(t, { car, siren, beach, horn, area, night = 0, rain = 0, dt = 0 }) {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
     const set = (param, v, tc = 0.06) => param.setTargetAtTime(v, now, tc);
@@ -103,8 +112,8 @@ export class Audio {
       set(this.engA.frequency, f);
       set(this.engB.frequency, f / 2);
       set(this.engFilter.frequency, 380 + rpm * 900 + car.throttle * 600);
-      set(this.engGain.gain, 0.09 + car.throttle * 0.07 + frac * 0.05);
-      set(this.skidGain.gain, Math.min(0.12, Math.max(0, car.slip - 3.5) * 0.02));
+      set(this.engGain.gain, (0.09 + car.throttle * 0.07 + frac * 0.05) * this.engineVolume);
+      set(this.skidGain.gain, Math.min(0.12, Math.max(0, car.slip - 3.5) * 0.02) * this.engineVolume);
     } else {
       set(this.engGain.gain, 0, 0.15);
       set(this.skidGain.gain, 0);
@@ -112,9 +121,10 @@ export class Audio {
     set(this.sirenGain.gain, siren * 0.05);
     if (siren > 0) this.siren.frequency.setTargetAtTime(Math.sin(t * 2.6) > 0 ? 960 : 640, now, 0.25);
     const busy = area === 'Downtown' || area === 'Midtown' ? 1 : area === 'Palm Park' || area === 'Northside Hills' ? 0.35 : 0.65;
-    set(this.cityGain.gain, 0.025 + busy * 0.04 * (1 - night * 0.4), 0.8);
-    if (dt > 0) this.ambience(dt, area, night, beach);
-    set(this.waveGain.gain, beach * (0.05 + Math.max(0, Math.sin(t * 0.7)) * 0.07), 0.3);
+    set(this.cityGain.gain, (0.025 + busy * 0.04 * (1 - night * 0.4)) * this.ambienceVolume, 0.8);
+    set(this.rainGain.gain, rain * 0.09 * this.ambienceVolume, 0.5);
+    if (dt > 0 && this.ambienceVolume > 0) this.ambience(dt, area, night, beach);
+    set(this.waveGain.gain, beach * (0.05 + Math.max(0, Math.sin(t * 0.7)) * 0.07) * this.ambienceVolume, 0.3);
     set(this.hornGain.gain, horn ? 0.07 : 0, 0.02);
   }
 

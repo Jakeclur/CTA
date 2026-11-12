@@ -1,6 +1,7 @@
 // Mission engine: runs the step lists in missionData.js, draws world markers,
 // tracks objectives, timers, rewards, failure and replays.
 import * as THREE from 'three';
+import { dampAngle } from './utils.js';
 import { Character } from './player.js';
 import { VEHICLE_TYPES } from './vehicles.js';
 
@@ -104,7 +105,7 @@ export class Missions {
     this.g.ui.missionResult(false, a.def.title, reason);
     this.g.audio?.play('fail');
     if (canRetry && a.snap) {
-      this.retry = { def: a.def, snap: a.snap, began: a.began, until: this.playTime + 15 };
+      this.retry = { def: a.def, snap: a.snap, began: a.began, vehicles: Object.values(a.vehicles), until: this.playTime + 15 };
       setTimeout(() => {
         if (this.retry) this.g.ui.notify('Checkpoint', 'Press R in the next few seconds to retry from the last checkpoint.', '');
       }, 2800);
@@ -120,12 +121,14 @@ export class Missions {
     const pos = g.playerPosition();
     const cars = {};
     for (const [id, v] of Object.entries(a.vehicles)) {
-      cars[id] = { type: v.type, color: v.color, x: v.x, z: v.z, heading: v.heading, driven: v === pv };
+      cars[id] = { type: v.type, color: v.color, x: v.x, z: v.z, heading: v.heading, health: v.health, ownedId: v.ownedId, driven: v === pv };
     }
     a.snap = {
       idx: a.idx, x: pos.x, z: pos.z, heading: pv ? pv.heading : g.player.facing, timer: a.timer,
-      car: pv && !Object.values(a.vehicles).includes(pv) ? { type: pv.type, color: pv.color } : null,
-      cars, cp: a.cp,
+      car: pv && !Object.values(a.vehicles).includes(pv) ? { type: pv.type, color: pv.color, health: pv.health, ownedId: pv.ownedId } : null,
+      cars, cp: a.cp, health: g.player.health, elapsed: this.playTime - a.began,
+      playerCar: pv, cash: g.cash, wanted: g.police.level,
+      garage: g.shops?.owned.map(car => ({ ...car })), garageNextId: g.shops?.nextId,
     };
   }
 
@@ -137,25 +140,41 @@ export class Missions {
     const s = r.snap;
     g.police.reset();
     g.leaveVehicleInstant();
+    // Remove the exact previous mission entities, even after they have moved.
+    for (const old of r.vehicles || []) g.vehicles.remove(old);
+    g.player.health = s.health ?? 100;
+    if (s.cash !== undefined) g.cash = s.cash;
+    if (s.garage && g.shops) {
+      for (const car of [...g.vehicles.list]) {
+        if (car.ownedId !== undefined) g.vehicles.remove(car);
+      }
+      g.shops.owned = s.garage.map(car => ({ ...car, out: false }));
+      g.shops.nextId = s.garageNextId;
+    }
+    if (s.wanted) { g.police.setLevel(s.wanted); g.police.lastSeen.set(s.x, 0, s.z); }
     const vehicles = {};
     let drive = null;
     for (const [id, c] of Object.entries(s.cars)) {
       // replace the mission car with a fresh one where it was
-      const old = g.vehicles.list.find((v) => Math.hypot(v.x - c.x, v.z - c.z) < 3);
-      if (old) g.vehicles.remove(old);
       const v = g.vehicles.spawn(c.type, c.driven ? s.x : c.x, c.driven ? s.z : c.z, c.driven ? s.heading : c.heading, c.color);
       v.role = 'mission';
+      v.health = c.health ?? 1000;
+      v.ownedId = c.ownedId;
       vehicles[id] = v;
       if (c.driven) drive = v;
     }
     if (!drive && s.car) {
-      const old = g.vehicles.list.find((v) => Math.hypot(v.x - s.x, v.z - s.z) < 3);
-      if (old) g.vehicles.remove(old);
+      if (s.playerCar && g.vehicles.list.includes(s.playerCar)) g.vehicles.remove(s.playerCar);
       drive = g.vehicles.spawn(s.car.type, s.x, s.z, s.heading, s.car.color);
+      drive.health = s.car.health ?? 1000;
+      drive.ownedId = s.car.ownedId;
     }
     if (drive) {
+      g.player.pos.set(drive.x, drive.y, drive.z);
       g.player.vehicle = drive;
       drive.driver = g.player;
+      const owned = g.shops?.owned.find(car => car.id === drive.ownedId);
+      if (owned) owned.out = true;
       drive.asleep = false;
       g.player.setVisible(false);
     } else {
@@ -163,7 +182,7 @@ export class Missions {
       g.player.setVisible(true);
     }
     g.rig.snap(new THREE.Vector3(s.x, g.world.heightAt(s.x, s.z) + 1.7, s.z), s.heading);
-    this.active = { def: r.def, idx: s.idx - 1, vehicles, timer: s.timer, stepT: 0, began: r.began, snap: s, cp: s.cp };
+    this.active = { def: r.def, idx: s.idx - 1, vehicles, timer: s.timer, stepT: 0, began: this.playTime - (s.elapsed ?? 0), snap: s, cp: s.cp };
     g.ui.missionTitle(r.def.title);
     g.audio?.play('mission');
     this.next();
@@ -230,13 +249,13 @@ export class Missions {
         return this.next();
       }
       case 'spawnVehicle': {
-        let v = g.vehicles.list.find((x) => Math.hypot(x.x - s.x, x.z - s.z) < 3);
-        if (v && v.type !== s.model) {
-          // something else is parked in the spot: move it out of the way
-          g.vehicles.remove(v);
-          v = null;
+        let x = s.x, z = s.z;
+        for (const offset of [0, 7, -7, 14, -14]) {
+          const candidateX = s.x + Math.sin(s.heading) * offset;
+          const candidateZ = s.z + Math.cos(s.heading) * offset;
+          if (g.vehicles.isFree(candidateX, candidateZ, 3)) { x = candidateX; z = candidateZ; break; }
         }
-        if (!v) v = g.vehicles.spawn(s.model, s.x, s.z, s.heading, s.color);
+        const v = g.vehicles.spawn(s.model, x, z, s.heading, s.color);
         v.role = 'mission';
         a.vehicles[s.id] = v;
         return this.next();
@@ -260,7 +279,14 @@ export class Missions {
     const g = this.g;
     this.playTime += dt;
     const t = g.time;
-    for (const c of this.npcs.values()) c.animate(dt, 0);
+    for (const c of this.npcs.values()) {
+      c.animate(dt, 0);
+      const player = g.player.pos;
+      if (Math.hypot(player.x - c.mesh.position.x, player.z - c.mesh.position.z) < 7) {
+        c.mesh.rotation.y = dampAngle(c.mesh.rotation.y, Math.atan2(player.x - c.mesh.position.x, player.z - c.mesh.position.z), 4, dt);
+        c.pose(dt, 'chat', t);
+      }
+    }
 
     // automatic starts (e.g. the phone call that opens the first mission)
     if (!this.active) {
@@ -300,6 +326,7 @@ export class Missions {
       if (a.timer <= 0) return this.fail("You ran out of time");
     }
     const s = a.step;
+    if (s.vehicle && a.vehicles[s.vehicle]?.health <= 0) return this.fail('The mission vehicle was wrecked');
     const pv = g.player.vehicle;
     let target = null;
     let label = s.label;
@@ -349,6 +376,7 @@ export class Missions {
         target = { x: cx, z: cz, big: true };
         label = `${s.label} (${a.cp + 1}/${s.points.length})`;
         if (Math.hypot(pos.x - cx, pos.z - cz) < (s.r || 7)) {
+          if (s.dialogue?.[a.cp]) g.ui.phone(a.def.giver, s.dialogue[a.cp]);
           a.cp++;
           g.audio?.play('checkpoint');
           if (a.cp >= s.points.length) {

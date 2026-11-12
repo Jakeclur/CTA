@@ -4,6 +4,24 @@ An original open-world driving and exploration game set in **Port Solano**, a su
 
 All four planned stages are built: the playable city (Stage 1), missions and police (Stage 2), a living city with traffic, pedestrians, day and night and sound (Stage 3), and the expansion with more missions, more cars, shops, a garage and the docks (Stage 4).
 
+## Driving and city upgrade
+
+Vehicles now run at a fixed 120 Hz with interpolated rendering, delayed reverse engagement, limited tyre grip, mass-sensitive steering and angular collision response. Four terrain samples support suspension, ramp takeoff and landing. Strong side impacts can roll a car. Press **V** when grounded and below 7 km/h to recover it. Damage is retained. Two practice ramps sit on the beach around x = -150 and -120, z = 355.
+
+Settings includes clear skies, rain and changing weather, plus engine and ambience volume controls. Rain darkens the sky and road surface, tightens wet-road reflections, reduces grip and adds synthesised rain sound. Road texture edge blending prevents obvious seams in the large repeated asphalt surface; its aggregate, repairs, cracks and oily patches remain procedural. Nearby cars and characters receive soft contact shadows on every quality preset. High and Ultra add two nearby traffic headlights. Post-processing uses restrained grain and colour grading.
+
+The player has jump buffering, a short grace period after leaving an edge, landing compression and animation based on actual movement. Vehicle entry checks the door and cancels if the car moves away. Exit positions are checked again before the character steps out.
+
+Traffic waits for a safe oncoming gap, attempts a short reverse recovery when blocked and spawns behind the camera. Police check nearby walls before detecting or arresting the player and route around blocked sightlines. First Run adds route dialogue. Mission retries track exact vehicle identities and restore checkpoint health, cash, garage inventory, vehicle condition, wanted level and elapsed time. Other owned cars return to the garage on retry.
+
+Run the logic regression suite with Node from the repository root.
+
+```bash
+node --experimental-loader ./tests/three-loader.mjs tests/regression.mjs
+```
+
+The tests exercise the real geometry, physics and city construction with a stubbed canvas texture context. They cover multiple rendering frame intervals, vehicle classes, ramps, collisions, character movement, weather, checkpoint retries and old saves. GPU rendering and physical-device frame rates require a WebGL-capable browser. The implementation retains the existing procedural asset pipeline and custom arcade physics. Vehicle rollover is an approximation using sampled terrain and angular response.
+
 ## Play it
 
 * **Online:** once GitHub Pages is switched on (see below), the game is at `https://<your-username>.github.io/CTA/`.
@@ -102,15 +120,15 @@ After a failed mission, press `R` within 15 seconds to retry from the last check
 
 ## Known limitations
 
-* AI drivers keep to the inner lane and do not change lanes. They give way when turning across oncoming traffic, but a driver who has waited about nine seconds goes anyway.
-* Only your own car's headlight lights up the road. Other cars show glowing lamps and light beams in the air but do not light the ground.
+* AI drivers keep to the inner lane and do not change lanes. They wait for a gap when turning across oncoming traffic.
+* Only your own car's headlight lights up the road. High and Ultra also light the road from two nearby traffic cars.
 * There are no weapons. The police can only arrest you on foot; in a car you escape them or get boxed in.
-* The car physics are arcade-style and cars cannot flip. Dents are pushed into the body shape, but doors and panels do not come off. AI traffic cars take damage too but are not repaired.
-* Only one checkpoint is kept per mission, and the retry restores your position, car and mission timer but not your cash or wanted level.
+* The car physics are arcade-style with terrain sampling, airborne motion and approximate rollover. Dents are pushed into the body shape, but doors and panels do not come off. AI traffic cars take damage too but are not repaired.
+* Only one checkpoint is kept per mission, and the retry restores your position, car and mission timer along with cash, health, vehicle condition and wanted level.
 * Traffic, pedestrians and parked cars are not saved; the city refills around you when you load. Owned cars return to your garage when you reload.
 * Pedestrians only cross the road at the corners of blocks, and a few can get briefly stuck against street furniture before they find their way around it.
 * Low kerbs and steps are smoothed rather than collided with, and you cannot climb onto objects.
-* Frame rates have not been measured on real hardware yet: automated tests run in a software renderer at a few frames per second. Run the benchmark on your own machine to see how each preset performs.
+* Frame rates have not been measured on real hardware. The current regression suite runs game logic without GPU rendering. Run the benchmark on your own machine to see how each preset performs.
 * Everything is still generated in code from simple shapes and canvas textures (no scanned textures or artist-made 3D models), so the look is detailed but stylised rather than photo-real.
 * Ultra's ambient occlusion draws the scene a second time, so it is only meant for fast graphics cards.
 * Sound starts after you click **Play** or **Continue** because browsers block audio until you interact with the page.

@@ -148,7 +148,7 @@ export class Traffic {
       if (dist < SPAWN_MIN || dist > SPAWN_MAX) continue;
       // avoid popping in right in front of the camera when close
       const inView = (x - cam.position.x) * look.x + (z - cam.position.z) * look.z > 0;
-      if (inView && dist < 150) continue;
+      if (inView) continue;
       if (!g.vehicles.isFree(x, z, 4)) continue;
       const type = this.rng.pick(TYPES);
       const v = g.vehicles.spawn(type, x, z, 0);
@@ -198,6 +198,18 @@ export class Traffic {
   drive(c, dt, sig) {
     const v = c.v;
     const g = this.g;
+    if (c.recoveryT > 0) {
+      c.recoveryT -= dt;
+      const behindX = v.x - Math.sin(v.heading) * 5;
+      const behindZ = v.z - Math.cos(v.heading) * 5;
+      const pedestrianBehind = g.peds.list.some(p => Math.hypot(p.pos.x - behindX, p.pos.z - behindZ) < 3);
+      const playerBehind = !g.player.vehicle && Math.hypot(g.player.pos.x - behindX, g.player.pos.z - behindZ) < 3;
+      if (g.vehicles.isFree(behindX, behindZ, 3, v) && !pedestrianBehind && !playerBehind) {
+        v.ctrl = { throttle: 0, brake: v.forwardSpeed > -2 ? 0.4 : 0, steer: 0.4, handbrake: false };
+      } else { v.ctrl = c.ai.stop(); c.recoveryT = 0; }
+      if (c.recoveryT <= 0) this.replan(c);
+      return;
+    }
     // shaken by a crash: stop for a moment
     if (c.shockT > 0) {
       c.shockT -= dt;
@@ -246,7 +258,7 @@ export class Traffic {
       }
     }
     // turning right on green: wait at the line for a gap in oncoming traffic
-    if (c.turnRight && distStop < 25 && sig[c.axis] === 2 && c.giveT < 9 && this.oncoming(c)) {
+    if (c.turnRight && distStop < 25 && sig[c.axis] === 2 && this.oncoming(c)) {
       speed = Math.min(speed, Math.sqrt(Math.max(0, distStop - 1.5) * 5));
       if (distStop < 4) c.giveT += dt;
     }
@@ -254,6 +266,11 @@ export class Traffic {
     if (gap < 40) speed = Math.min(speed, Math.max(0, (gap - 3.5) * 0.9));
     if (speed < 0.6) {
       c.waitT += dt;
+      // Retry a blocked route physically, only when the junction permits travel.
+      if (c.waitT > 18 && sig[c.axis] === 2 && !this.oncoming(c)) {
+        c.recoveryT = 1.2;
+        c.waitT = 0;
+      }
       v.ctrl = c.ai.stop();
       v.ctrl.handbrake = false;
       return;

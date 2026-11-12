@@ -46,7 +46,9 @@ export class CameraRig {
 
     // Re-centre behind a moving vehicle after the mouse has been still for a moment
     if (followYaw !== undefined && this.autoCenter && now - this.lastLook > 1400 && Math.abs(speed) > 2) {
-      this.yaw = dampAngle(this.yaw, followYaw, 2.4, dt);
+      const direction = speed < -2 ? Math.PI : 0;
+      const anticipation = clamp((opts.turnRate || 0) * 0.22, -0.18, 0.18);
+      this.yaw = dampAngle(this.yaw, followYaw + direction + anticipation, 2.4, dt);
       this.pitch = damp(this.pitch, 0.18, 1.5, dt);
     }
 
@@ -78,7 +80,7 @@ export class CameraRig {
     }
     cam.lookAt(t.x, t.y, t.z);
 
-    const fov = this.baseFov + clamp(Math.abs(speed) - 8, 0, 40) * 0.3;
+    const fov = this.baseFov + clamp(Math.abs(speed) - 12, 0, 40) * 0.2;
     if (Math.abs(cam.fov - fov) > 0.05) {
       cam.fov = damp(cam.fov, fov, 3, dt);
       cam.updateProjectionMatrix();

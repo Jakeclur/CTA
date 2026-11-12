@@ -169,6 +169,8 @@ export function buildEnvironment(scene, renderer) {
   let shadowRange = 90;
   let bakedAt = -1;
   let night = 0;
+  let clearSunIntensity = 1;
+  const rainColor = new THREE.Color('#73818d');
 
   const k0 = {};
   function setTime(hours) {
@@ -197,7 +199,8 @@ export function buildEnvironment(scene, renderer) {
     hemi.groundColor.copy(k0.hemiGround);
     hemi.intensity = a.hemiI + (b.hemiI - a.hemiI) * f;
     sun.color.copy(k0.sun);
-    sun.intensity = a.sunI + (b.sunI - a.sunI) * f;
+    clearSunIntensity = a.sunI + (b.sunI - a.sunI) * f;
+    sun.intensity = clearSunIntensity;
     renderer.toneMappingExposure = a.exposure + (b.exposure - a.exposure) * f;
     water.material.color.set(night > 0.5 ? '#0c2a3a' : '#1d6f8c');
     // below the horizon the moon lights the scene from the opposite side
@@ -237,7 +240,11 @@ export function buildEnvironment(scene, renderer) {
       scene.fog.far = drawDistance;
     },
     // Keep the sky centred on the camera and the shadow box centred on the action.
-    update(dt, t, camera, focus) {
+    update(dt, t, camera, focus, rain = 0) {
+      scene.fog.color.copy(k0.horizon).lerp(rainColor, rain * 0.55);
+      scene.background.copy(scene.fog.color);
+      skyMat.uniforms.horizonColor.value.copy(scene.fog.color);
+      sun.intensity = clearSunIntensity * (1 - rain * 0.65);
       sky.position.copy(camera.position);
       sky.scale.setScalar((camera.far * 0.9) / 1000);
       // snap to shadow texels to stop shimmering as the player moves
