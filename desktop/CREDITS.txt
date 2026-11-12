@@ -1,0 +1,16 @@
+Port Solano desktop preview — asset credits
+
+
+Godot Engine 4.6.3, MIT: https://godotengine.org/license/
+
+Car Concept by Eric Chadwick / Darmstadt Graphics Group GmbH (2024), CC BY 4.0.
+
+Source: https://github.com/KhronosGroup/glTF-Sample-Assets/tree/7d4ba189827916452eeadc82d4b712dbc6280a6f/Models/CarConcept
+
+Changes: textures resized/re-encoded, converted to PNG for import, filtering changed, native paint/glass/light controls, packed AO and paint micro-normals omitted, model fitted to game physics, wheel/door controls and native LOD. Logos retain their owners' trademarks; no endorsement is implied.
+
+Poly Haven, CC0: Asphalt 02, Concrete Pavement, Brick Wall 001, Painted Wooden Bench, Kloofendal partly-cloudy HDR. https://polyhaven.com/license
+
+ambientCG Concrete036, CC0: https://ambientcg.com/a/Concrete036
+
+Original procedural geometry and foliage artwork are reused from CTA. Four Mixamo motion clips were supplied by the project owner for use in the game. Pete and Punching.fbx are not included.
