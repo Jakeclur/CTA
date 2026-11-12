@@ -1,0 +1,121 @@
+{
+  "version": 1,
+  "name": "Car Concept",
+  "license": "CC-BY-4.0",
+  "author": "Eric Chadwick / Darmstadt Graphics Group GmbH (2024)",
+  "source": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/7d4ba189827916452eeadc82d4b712dbc6280a6f/Models/CarConcept",
+  "commit": "7d4ba189827916452eeadc82d4b712dbc6280a6f",
+  "modifications": "Textures resized to a maximum 1024 pixels and re-encoded; texture filtering adjusted; geometry batched, transformed and adapted to game controls at load time.",
+  "files": [
+    {
+      "path": "assets/vehicles/car-concept/CarConcept.data.bin",
+      "download": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/7d4ba189827916452eeadc82d4b712dbc6280a6f/Models/CarConcept/glTF-WEBP/CarConcept.data.bin",
+      "sourceSha256": "5cd6ceb6a502dc3c79863c2f11c06f6aa7474e53367bb212b3e3c3f1e7611d20",
+      "sha256": "5cd6ceb6a502dc3c79863c2f11c06f6aa7474e53367bb212b3e3c3f1e7611d20",
+      "bytes": 8670516
+    },
+    {
+      "path": "assets/vehicles/car-concept/Mechanical_N.webp",
+      "download": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/7d4ba189827916452eeadc82d4b712dbc6280a6f/Models/CarConcept/glTF-WEBP/Mechanical_N.webp",
+      "sourceSha256": "020ebe88f3876916a3e69673bf87158f7277a16ab5ea0ee3907bdb79f4f7af48",
+      "sha256": "c6b52d16e2dd91dfc7db2df444c49496c7494783a8eee588b660cb64741d6472",
+      "bytes": 49666
+    },
+    {
+      "path": "assets/vehicles/car-concept/Mechanical_ORM.webp",
+      "download": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/7d4ba189827916452eeadc82d4b712dbc6280a6f/Models/CarConcept/glTF-WEBP/Mechanical_ORM.webp",
+      "sourceSha256": "d1f1e5c59781b79db7e84da5e9b1fbb284b21efc7a539574ee0ebe1ce104421e",
+      "sha256": "312a1764ddaaaaee2af99b6dd21bf23661b5a7bf093161a9c38e6b3f27520124",
+      "bytes": 16844
+    },
+    {
+      "path": "assets/vehicles/car-concept/Occlusion.webp",
+      "download": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/7d4ba189827916452eeadc82d4b712dbc6280a6f/Models/CarConcept/glTF-WEBP/Occlusion.webp",
+      "sourceSha256": "7fe3e166951f7bdb6d4e8388c0d5714dbba50e5cc275de1915e6eab8d6d5cb47",
+      "sha256": "3eaf26f7027a4aa04b26681c89623b82c432db89dd542f2478b3f2b26bd5c218",
+      "bytes": 214990
+    },
+    {
+      "path": "assets/vehicles/car-concept/Khronos_C.webp",
+      "download": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/7d4ba189827916452eeadc82d4b712dbc6280a6f/Models/CarConcept/glTF-WEBP/Khronos_C.webp",
+      "sourceSha256": "b4f81a98ffa615095fd32d35c6710ee8057dbb14809bbd3eefebbaf7dc2239c5",
+      "sha256": "91bf7eab90a22962c2565939e483f1c155bdba60509dec47157c47b226ac0652",
+      "bytes": 4608
+    },
+    {
+      "path": "assets/vehicles/car-concept/Hex_N.webp",
+      "download": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/7d4ba189827916452eeadc82d4b712dbc6280a6f/Models/CarConcept/glTF-WEBP/Hex_N.webp",
+      "sourceSha256": "bcde9a997f7a79e1908c1d212564a2263a6b95a3bca12cbd1f437e1f57c5fd8f",
+      "sha256": "e826e390328710542d25b77296e3ec05500eeaccf75d0e52233d52c8275768fe",
+      "bytes": 946
+    },
+    {
+      "path": "assets/vehicles/car-concept/Rib_N.webp",
+      "download": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/7d4ba189827916452eeadc82d4b712dbc6280a6f/Models/CarConcept/glTF-WEBP/Rib_N.webp",
+      "sourceSha256": "c959f3710698cf6dff847297e2d6d97daf594672eec01f2c4856a18e6b4fa03f",
+      "sha256": "ac0b07161ed49dee5cf6b2412e1a262c7bd820adf7abf3b51c5ea046c25d5f72",
+      "bytes": 164
+    },
+    {
+      "path": "assets/vehicles/car-concept/Dash_E.webp",
+      "download": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/7d4ba189827916452eeadc82d4b712dbc6280a6f/Models/CarConcept/glTF-WEBP/Dash_E.webp",
+      "sourceSha256": "fd17ffdd3e6b638d16c934ece4cf63bf6e7300c55af92bb3b2153a3d3ee83145",
+      "sha256": "5fda49a46a126bf54cb67aeb3735604825c2eebf34dce8a7a7f6dfdb5c5b38ab",
+      "bytes": 13044
+    },
+    {
+      "path": "assets/vehicles/car-concept/Powdercoat_N.webp",
+      "download": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/7d4ba189827916452eeadc82d4b712dbc6280a6f/Models/CarConcept/glTF-WEBP/Powdercoat_N.webp",
+      "sourceSha256": "5528b60f02ad913071304a868c387bab78f87d09b246459a892307132a335ae9",
+      "sha256": "8082b80ee973fcd95ae35eaac086d0f745fc926f0c336e5cdd89cff51c2a3410",
+      "bytes": 12494
+    },
+    {
+      "path": "assets/vehicles/car-concept/Dot_C.webp",
+      "download": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/7d4ba189827916452eeadc82d4b712dbc6280a6f/Models/CarConcept/glTF-WEBP/Dot_C.webp",
+      "sourceSha256": "ad468ff4a4cee31f595847eeda50fb23432c1b52be1991e0543cb6bd1ac84e85",
+      "sha256": "60569597713d6504535d44f91139e54f2a6266aad2c5c9270b680e74d4923ac1",
+      "bytes": 1070
+    },
+    {
+      "path": "assets/vehicles/car-concept/Dot_N.webp",
+      "download": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/7d4ba189827916452eeadc82d4b712dbc6280a6f/Models/CarConcept/glTF-WEBP/Dot_N.webp",
+      "sourceSha256": "7eb4771f6a73b483a6940f6c89ae7225243163af394b229f8405c5ec717e3d18",
+      "sha256": "72ee31d720415394be3853a85f3e4ff1403de11e73d064f3493ea3a95417d244",
+      "bytes": 2314
+    },
+    {
+      "path": "assets/vehicles/car-concept/Tireside_C.webp",
+      "download": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/7d4ba189827916452eeadc82d4b712dbc6280a6f/Models/CarConcept/glTF-WEBP/Tireside_C.webp",
+      "sourceSha256": "913effce24c0f5a9c0a5fa91bc8addb5f640efe6b858f2327e93abc2299d28b6",
+      "sha256": "9e7761bf36120fee8efafe1c76de63ee9506c939cf4b8498b19adcbd1c2637d6",
+      "bytes": 6518
+    },
+    {
+      "path": "assets/vehicles/car-concept/Tireside_N.webp",
+      "download": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/7d4ba189827916452eeadc82d4b712dbc6280a6f/Models/CarConcept/glTF-WEBP/Tireside_N.webp",
+      "sourceSha256": "8b8dd254dbb7dc5202cd99e4ae9dbf890d8de3dcd79e77f12af923f29753c57a",
+      "sha256": "1987a7ccc5ee73da24855c32ff73505c1133bccd6516165dae727c6fd1550166",
+      "bytes": 102652
+    },
+    {
+      "path": "assets/vehicles/car-concept/Tiretread_N.webp",
+      "download": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/7d4ba189827916452eeadc82d4b712dbc6280a6f/Models/CarConcept/glTF-WEBP/Tiretread_N.webp",
+      "sourceSha256": "734af0dc6949c29e6da80657638b2b2d7ab5e265373b85bc131224931de1da52",
+      "sha256": "4a9c4695cf86866c412afa86075ead229f44075f6d3bfb787cf4adcb314d509b",
+      "bytes": 8892
+    },
+    {
+      "path": "assets/vehicles/car-concept/Thickness.webp",
+      "download": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/7d4ba189827916452eeadc82d4b712dbc6280a6f/Models/CarConcept/glTF-WEBP/Thickness.webp",
+      "sourceSha256": "3c7e018cd11a1239619be11d0acd08289c06fc5f75d6632e81c96911eaff412e",
+      "sha256": "6b0fe0deb46bd74ee8a59be31dc45c57af692afb437e415b30ca1b3cc414842f",
+      "bytes": 29942
+    },
+    {
+      "path": "assets/vehicles/car-concept/CarConcept.gltf",
+      "sha256": "22407839eaaf4c48993c89df20aab28916332bffdab34e312ea7647c288191d7",
+      "bytes": 184684
+    }
+  ]
+}

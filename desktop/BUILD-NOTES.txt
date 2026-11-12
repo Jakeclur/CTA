@@ -1,0 +1,71 @@
+# Port Solano — native desktop preview
+
+This is a native Godot 4.6.3 game, written in GDScript, for Windows x86-64.
+It runs without a browser or the Godot editor. The recommended starting setting
+for the requested RTX 2060 / 16 GB system is **Balanced**, at 1080p. Balanced caps
+3D rendering at 1920×1080; High permits 2560×1440. Actual frame rates on that
+hardware have not been measured.
+
+The first desktop preview includes the existing seeded city layout and recessed
+architecture, scanned PBR surfaces and HDR sky, the attributed concept car,
+native shadows and SSAO, optional SSIL/reflections, on-foot movement, jumping,
+driving, car entry/exit, four supplied locomotion/defeat clips, three firearms,
+melee combos, finite ammo/reloads, hit reactions, nearby officers, a courier
+route, ammunition/health supplies, a map, waypoints, day/night and native saves.
+
+It is **an early port**, not feature parity with the web game or a completed
+photorealistic remodel. The full mission catalogue, shops/garage, richer traffic
+and police AI, rain, advanced vehicle physics, original vehicle variety and
+several world props remain to be ported. Existing browser saves do not transfer.
+Current characters reuse the earlier procedural geometry. Pete and the supplied
+Punching FBX have not been imported because that upload exceeded the execution
+workspace's 32 MiB transfer limit. Existing punches use procedural poses.
+
+The native controller and motion adapter are independent of the character
+geometry, so a replacement skin can be integrated without replacing combat or
+movement. The current city uses visibility ranges, building occluders,
+instanced foliage, shared character/car geometry and bounded combat effects.
+
+## Play
+
+Extract the complete Windows ZIP into a folder, then open `PortSolano.exe`.
+No engine installation or local development steps are needed.
+
+- WASD: walk / drive; Shift: sprint; Space: jump / handbrake.
+- E: enter / exit a stopped car. Both exit sides are checked for obstacles.
+- 1: fists; 2: pistol; 3: shotgun; 4: rifle.
+- Left mouse: attack; right mouse: aim; R: reload.
+- F: buy health and ammunition for $100 at the supplies crate by the start.
+- J: start the courier route; M: map; click map: waypoint.
+- N: day/night; T: run/pause the day cycle; F11: fullscreen; Esc: pause.
+
+Saves and settings are stored under Windows AppData, in Godot's application data
+folder for `CTA — Port Solano Desktop`. They are separate from the game folder.
+
+## Cloud build and QA
+
+`python tools/build-native.py` prepares geometry/assets, imports the Godot
+project, runs native gameplay checks, exports Windows and an equivalent Linux QA
+package, runs the exported QA package and packages the Windows ZIP. It needs the
+Godot 4.6.3 executable, Node, Python/Pillow, Playwright/Chromium for deterministic
+foliage baking, and the matching official export templates. Templates live in
+`CTA_GODOT_TOOLS`, defaulting to `/workspace/work/godot-tools`.
+
+Generated `assets/`, city/character buffers, `.godot/`, `.toolchain/` and `builds/`
+are excluded from Git. Their source inputs and preparation scripts are tracked
+in the parent project. Original uploaded FBXs are not part of the desktop build.
+
+Visual QA uses Godot with X11 and a software Vulkan device in the cloud. That
+checks real rendering, but cannot establish RTX 2060 frame rates. Windows PE and
+package structure are checked here; Windows execution must be confirmed on a
+Windows computer.
+
+## Credits
+
+Car Concept — Eric Chadwick / Darmstadt Graphics Group GmbH (2024), CC BY 4.0:
+https://github.com/KhronosGroup/glTF-Sample-Assets/tree/7d4ba189827916452eeadc82d4b712dbc6280a6f/Models/CarConcept
+
+Scanned maps, bench and HDR: Poly Haven and ambientCG, CC0. Full attribution,
+source URLs and modifications are in the included credits and asset manifests.
+Godot uses the MIT licence. Mixamo clips were provided by the project owner for
+use in this game and are not redistributed as a standalone motion pack.

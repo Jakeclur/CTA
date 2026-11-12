@@ -26,6 +26,7 @@ The tests exercise the real geometry, physics and city construction with a stubb
 
 * **Online:** once GitHub Pages is switched on (see below), the game is at `https://<your-username>.github.io/CTA/`.
 * **Locally:** see [Run it on your computer](#run-it-on-your-computer).
+* **Windows desktop preview:** an early native build is in [desktop/](desktop/). [Download the ZIP](https://github.com/Jakeclur/CTA/raw/main/desktop/PortSolano-Windows-Preview.zip), extract it and run `PortSolano.exe`.
 
 ### Controls
 
