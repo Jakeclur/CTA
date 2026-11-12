@@ -21,7 +21,7 @@ export class Input {
       this.keys.add(e.code);
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
-    window.addEventListener('blur', () => this.keys.clear());
+    window.addEventListener('blur', () => { this.reset(); this.dragging = false; });
 
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === canvas;

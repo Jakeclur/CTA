@@ -46,6 +46,7 @@ export const MISSIONS = [
       {
         type: 'checkpoints', vehicle: 'van', r: 8, label: "Follow Marco's route", checkpoint: true,
         points: [[-80, 84], [0, 78], [80, 78], [160, 78]],
+        dialogue: ['Keep it steady through the junction. Those crates are worth more than the van.', 'Good. Stay on this road past the park.', 'Nearly there. The workshop entrance is on your right after the next turn.', 'Bring it into the yard and stop by the shutter.'],
       },
       { type: 'drive', x: 200, z: 52, r: 6, vehicle: 'van', stop: true, label: 'Deliver the van to Solano Customs', checkpoint: true },
       { type: 'message', from: 'Marco', text: 'Smooth. Here is your cut. Come by the shop if you want more work.' },

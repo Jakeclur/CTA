@@ -1,3 +1,4 @@
+import { buildRamps, rampHeight } from './ramps.js';
 // Procedural city generation: districts, roads, pavements, buildings, collisions
 // and the data the minimap, vehicles and pickups need.
 import * as THREE from 'three';
@@ -113,7 +114,9 @@ export async function buildWorld(scene, onProgress) {
   await nextFrame();
   const props = buildProps(ctx, group);
 
-  const heightAt = makeHeightFn(ctx);
+  const baseHeightAt = makeHeightFn(ctx);
+  buildRamps(group, baseHeightAt);
+  const heightAt = (x, z) => rampHeight(x, z, baseHeightAt(x, z));
   const areaAt = makeAreaFn();
 
   return {
@@ -944,6 +947,7 @@ function buildGroundMeshes(ctx, tex, group) {
   const asphalt = new THREE.Mesh(new THREE.PlaneGeometry(S * 2, S * 2), asphaltMat);
   asphalt.rotation.x = -Math.PI / 2;
   asphalt.receiveShadow = true;
+  asphalt.userData.wetSurface = true;
   group.add(asphalt);
 
   // Grass beyond the city

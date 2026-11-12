@@ -123,6 +123,12 @@
             <option value="high">Busy</option>
           </select>
 
+          <label for="set-weather">Weather</label>
+          <select id="set-weather"><option value="clear">Clear</option><option value="rain">Rain</option><option value="cycle">Changing weather</option></select>
+          <label for="set-engine-volume">Engine and tyres</label>
+          <input id="set-engine-volume" type="range" min="0" max="1" step="0.05" />
+          <label for="set-ambience-volume">City and weather</label>
+          <input id="set-ambience-volume" type="range" min="0" max="1" step="0.05" />
           <label for="set-volume">Volume <output id="out-volume"></output></label>
           <input id="set-volume" type="range" min="0" max="1" step="0.05" />
 
@@ -184,6 +190,7 @@
             <li><kbd>Space</kbd> Handbrake</li>
             <li><kbd>E</kbd> Exit vehicle</li>
             <li><kbd>H</kbd> Horn</li>
+            <li><kbd>V</kbd> Recover stopped vehicle</li>
             <li><kbd>C</kbd> Reset camera behind car</li>
           </ul>
         </div>

@@ -572,3 +572,5 @@ kbd {
   .bench-results { gap: 4px 20px; font-size: 14px; }
   .bench-results dd.big { font-size: 22px; }
 }
+
+#wanted small { display: block; font-size: 10px; letter-spacing: 0.16em; text-align: right; color: #f1e7d5; }

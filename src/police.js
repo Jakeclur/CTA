@@ -111,7 +111,7 @@ export class Police {
   placeRoadblock() {
     const g = this.g;
     const pv = g.player.vehicle;
-    if (!pv || pv.speed < 8) return false;
+    if (!pv || pv.speed < 8 || this.roadblocks.length >= 3) return false;
     const dir = Math.abs(pv.vx) > Math.abs(pv.vz) ? (pv.vx > 0 ? 2 : 3) : pv.vz > 0 ? 0 : 1;
     const d = DIRS[dir];
     let [i, j] = nearestNode(pv.x, pv.z);
@@ -216,7 +216,7 @@ export class Police {
       const dz = target.z - z;
       const d = Math.hypot(dx, dz);
       if (d > range) continue;
-      if (d < 8) return true;
+      if (d < 0.1) return true;
       const dy = target.y + 1 - 1.3;
       const len = Math.hypot(dx, dy, dz);
       const hit = this.g.world.colliders.raycast(x, 1.3, z, dx / len, dy / len, dz / len, len);
@@ -241,6 +241,7 @@ export class Police {
         if (d < 100 || d > 230) continue;
         // prefer places the camera is not looking at, so cars do not pop in
         const inView = (x - cam.position.x) * look.x + (z - cam.position.z) * look.z > 0;
+        if (inView) continue;
         options.push({ i, j, x, z, score: (inView ? 1 : 0) + Math.random() * 0.5 });
       }
     options.sort((a, b) => a.score - b.score);
@@ -307,7 +308,9 @@ export class Police {
       tx += pvx * 0.6; // aim ahead of a moving car
       tz += pvz * 0.6;
     }
-    if (d > 45) [tx, tz] = u.ai.routeAim(dt, tx, tz);
+    const goalDistance = Math.hypot(tx - v.x, tz - v.z);
+    const blocked = goalDistance > 0 && g.world.colliders.raycast(v.x, v.y + 1, v.z, (tx - v.x) / goalDistance, 0, (tz - v.z) / goalDistance, goalDistance) < goalDistance - 1;
+    if (d > 45 || blocked) [tx, tz] = u.ai.routeAim(dt, tx, tz);
     else if (onFoot || !known) speed = Math.min(speed, Math.max(3, d * 0.8));
     else if (this.level < 3) speed = Math.min(speed, (g.player.vehicle ? g.player.vehicle.speed : 0) + 4 + d * 0.3);
 
@@ -356,10 +359,11 @@ export class Police {
         return;
       }
     } else {
-      gx = target.x;
-      gz = target.z;
+      const goal = this.canSee(u, target) ? target : this.lastSeen;
+      gx = goal.x;
+      gz = goal.z;
       speed = this.level === 1 ? 4.2 : 5.6;
-      if (dPlayer < 1.1) {
+      if (dPlayer < 1.1 && this.canSee(u, target)) {
         g.arrest(this.level);
         return;
       }

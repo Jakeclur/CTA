@@ -5,6 +5,9 @@ const SETTINGS_KEY = 'cta.settings.v1';
 const PROGRESS_KEY = 'cta.progress.v1';
 
 export const DEFAULT_SETTINGS = {
+  weather: 'clear',
+  engineVolume: 1,
+  ambienceVolume: 1,
   quality: 'medium', // low | medium | high
   drawDistance: 800,
   fov: 70,

@@ -410,6 +410,13 @@ export class Vehicle {
     this.vz = 0;
     this.angVel = 0;
     this.steer = 0;
+    this.reverseHold = 0;
+    this.verticalSpeed = 0;
+    this.grounded = true;
+    this.chassisPitch = 0;
+    this.chassisRoll = 0;
+    this.tumbleSpeed = 0;
+    this.contactHeights = [0, 0, 0, 0];
     this.forwardSpeed = 0;
     this.wheelSpin = 0;
     this.roll = 0;
@@ -460,6 +467,12 @@ export class Vehicle {
     this.dent(px, pz, nx, nz, Math.min(0.2, (impact - 3.5) * 0.018));
     // a jolt through the suspension
     this.heaveVel -= Math.min(1.5, impact * 0.05);
+    const sideImpact = nx * Math.cos(this.heading) - nz * Math.sin(this.heading);
+    if (impact > 16 && Math.abs(sideImpact) > 0.65) {
+      this.tumbleSpeed += sideImpact * Math.min(5, (impact - 16) * this.spec.H * 0.16);
+      this.verticalSpeed = Math.max(this.verticalSpeed, 3);
+      this.grounded = false;
+    }
     this.pitchVel += (Math.random() - 0.5) * impact * 0.06;
   }
 
@@ -516,6 +529,12 @@ export class Vehicle {
     this.y = y;
     this.heading = heading;
     this.vx = this.vz = this.angVel = 0;
+    this.forwardSpeed = this.prevVF = this.steer = this.reverseHold = 0;
+    this.pitch = this.roll = this.heave = 0;
+    this.pitchVel = this.rollVel = this.heaveVel = 0;
+    this.verticalSpeed = this.chassisPitch = this.chassisRoll = this.tumbleSpeed = 0;
+    this.grounded = true;
+    this.previousPose = { x, y, z, heading };
     this.syncModel(0);
   }
 
@@ -539,13 +558,15 @@ export class Vehicle {
     let vF = this.vx * fx + this.vz * fz;
     let vR = this.vx * rx + this.vz * rz;
     let c = ctrl || { throttle: 0, brake: 0, steer: 0, handbrake: false };
-    if (this.health <= 0 && c.throttle > 0) c = { ...c, throttle: 0 }; // wrecked: no drive
+    if (this.health <= 0 || Math.abs(this.chassisRoll) > 1) c = { ...c, throttle: 0 };
+    if (!this.grounded) c = { throttle: 0, brake: 0, steer: 0, handbrake: false }; // wrecked: no drive
     const power = this.health < 400 ? 0.55 + (this.health / 400) * 0.45 : 1;
     this.hardBrake = c.brake > 0.7;
     this.handbrakeOn = !!c.handbrake;
 
     const steerLimit = s.steer / (1 + Math.abs(vF) / 22);
-    this.steer = damp(this.steer, c.steer * steerLimit, 7, dt);
+    this.steer = damp(this.steer, c.steer * steerLimit, c.steer ? 7 : 10, dt);
+    this.reverseHold = c.brake > 0 && Math.abs(vF) < 0.5 ? this.reverseHold + dt : 0;
 
     let a = 0;
     this.braking = false;
@@ -559,12 +580,16 @@ export class Vehicle {
       if (vF > 0.5) {
         a -= s.brake * c.brake;
         this.braking = true;
-      } else {
+      } else if (this.health > 0 && (vF < -0.5 || this.reverseHold >= 0.25)) {
         const maxRev = s.maxSpeed * 0.3;
-        a -= s.accel * 0.7 * Math.max(0, 1 - Math.max(0, -vF) / maxRev);
+        a -= s.accel * power * 0.7 * c.brake * Math.max(0, 1 - Math.max(0, -vF) / maxRev);
       }
     }
+    const beforeAcceleration = vF;
     vF += a * dt;
+    // Braking reaches rest before a sustained reverse input engages the gearbox.
+    if (this.braking && Math.sign(beforeAcceleration) !== Math.sign(vF)) vF = 0;
+    if (c.brake > 0 && this.reverseHold > 0 && this.reverseHold < 0.25) vF = 0;
     // air drag, rolling resistance and engine braking
     const coast = c.throttle === 0 && c.brake === 0;
     vF -= (vF * Math.abs(vF) * 0.0011 + vF * (coast ? 0.22 : 0.04)) * dt;
@@ -575,15 +600,23 @@ export class Vehicle {
     }
     if (coast && Math.abs(vF) < 0.25) vF = 0;
 
-    const grip = c.handbrake ? s.grip * 0.14 : s.grip;
-    vR *= Math.exp(-grip * dt);
+    // A limited lateral acceleration leaves momentum in a slide. Higher and
+    // heavier vehicles settle more slowly, while sports cars retain more grip.
+    const traction = this.grounded ? 1 - (world.wetness || 0) * 0.3 : 0;
+    const grip = (c.handbrake ? s.grip * 0.14 : s.grip) * traction;
+    const lateralLimit = s.grip * (c.handbrake ? 0.35 : 1.35) * traction;
+    const lateralCorrection = vR * (1 - Math.exp(-grip * dt));
+    vR -= clamp(lateralCorrection, -lateralLimit * dt, lateralLimit * dt);
     if (Math.abs(vR) < 0.02) vR = 0;
     // sliding scrubs speed
     vF -= Math.sign(vF) * Math.min(Math.abs(vF), Math.abs(vR) * 0.25 * dt);
 
     let targetW = (vF * Math.tan(this.steer)) / s.wheelBase;
     if (c.handbrake && Math.abs(vF) > 4) targetW *= 1.45;
-    this.angVel = damp(this.angVel, targetW, c.handbrake ? 3.5 : 9, dt);
+    const yawLimit = s.grip * traction * (c.handbrake ? 1.7 : 1.35) / Math.max(4, Math.abs(vF));
+    targetW = clamp(targetW, -yawLimit, yawLimit);
+    if (this.grounded) this.angVel = damp(this.angVel, targetW, c.handbrake ? 3.5 : 9 * 1450 / s.mass, dt);
+    else this.angVel *= Math.exp(-0.15 * dt);
     this.heading += this.angVel * dt;
 
     this.vx = fx * vF + rx * vR;
@@ -607,11 +640,55 @@ export class Vehicle {
     this.slip = Math.abs(vR);
 
     const impact = this.collideStatic(world.colliders);
-    const ground = world.heightAt(this.x, this.z);
-    const before = this.y;
-    this.y = damp(this.y, ground, 14, dt);
-    // kerbs and bumps kick the body up and it settles on its springs
-    this.heaveVel += ((-this.heave * 160 - this.heaveVel * 12) * dt) - (this.y - before) * 2.5;
+    const landing = this.updateSuspension(dt, world);
+    return Math.max(impact, landing);
+  }
+
+  updateSuspension(dt, world) {
+    const s = this.spec;
+    const forwardX = Math.sin(this.heading), forwardZ = Math.cos(this.heading);
+    let index = 0;
+    for (const end of [1, -1]) {
+      for (const side of [-1, 1]) {
+        const along = end * s.wheelBase / 2;
+        const across = side * s.track / 2;
+        this.contactHeights[index++] = world.heightAt(this.x + forwardX * along + forwardZ * across, this.z + forwardZ * along - forwardX * across);
+      }
+    }
+    const [frontLeft, frontRight, rearLeft, rearRight] = this.contactHeights;
+    const support = (frontLeft + frontRight + rearLeft + rearRight) / 4;
+    const front = (frontLeft + frontRight) / 2, rear = (rearLeft + rearRight) / 2;
+    const slopePitch = -Math.atan2(front - rear, s.wheelBase);
+    const slopeRoll = Math.atan2(frontRight + rearRight - frontLeft - rearLeft, s.track * 2);
+    const wasGrounded = this.grounded;
+    const previousY = this.y;
+    this.verticalSpeed -= 18 * dt;
+    this.y += this.verticalSpeed * dt;
+    let impact = 0;
+    // Only snap upward while the tyre suspension can reach the sampled surface.
+    if (this.y <= support && support - this.y < 0.65) {
+      impact = wasGrounded ? 0 : Math.max(0, -this.verticalSpeed - 3);
+      this.y = support;
+      this.verticalSpeed = wasGrounded ? clamp((support - previousY) / dt, -3, 12) : 0;
+      this.grounded = true;
+      if (impact > 0) {
+        this.heaveVel -= Math.min(2.5, impact * 0.15);
+        this.hit(impact, this.x, this.z, 0, 0);
+      }
+    } else {
+      this.grounded = false;
+      // Prevent sinking through terrain after a large external reposition.
+      if (this.y < support - 0.65) { this.y = support; this.verticalSpeed = 0; this.grounded = true; }
+    }
+    this.chassisPitch = damp(this.chassisPitch, this.grounded ? slopePitch : this.chassisPitch * 0.98, 8, dt);
+    this.chassisRoll += this.tumbleSpeed * dt;
+    if (this.grounded) {
+      const restingRoll = Math.abs(this.chassisRoll) > Math.PI / 2 ? Math.sign(this.chassisRoll) * Math.PI : slopeRoll;
+      this.chassisRoll = damp(this.chassisRoll, restingRoll, 4, dt);
+      this.tumbleSpeed *= Math.exp(-5 * dt);
+    } else this.tumbleSpeed *= Math.exp(-0.2 * dt);
+    this.chassisRoll = Math.atan2(Math.sin(this.chassisRoll), Math.cos(this.chassisRoll));
+    this.heaveVel += (-this.heave * 160 - this.heaveVel * 12) * dt;
     this.heave = clamp(this.heave + this.heaveVel * dt, -0.12, 0.12);
     return impact;
   }
@@ -668,12 +745,16 @@ export class Vehicle {
   syncModel(dt) {
     const m = this.model;
     m.root.position.set(this.x, this.y, this.z);
-    m.root.rotation.y = this.heading;
+    m.root.rotation.set(this.chassisPitch, this.heading, this.chassisRoll, 'YXZ');
+    m.root.position.y += Math.abs(Math.sin(this.chassisRoll / 2)) * this.spec.H * 0.75;
     m.body.rotation.x = this.pitch;
     m.body.rotation.z = this.roll;
     m.body.position.y = this.heave;
     this.wheelSpin += (this.forwardSpeed / this.spec.wheelR) * dt;
-    for (const w of m.wheels) {
+    for (const [i, w] of m.wheels.entries()) {
+      const slopeHeight = -Math.sin(this.chassisPitch) * w.steerG.position.z + Math.sin(this.chassisRoll) * w.steerG.position.x;
+      const localGround = this.contactHeights[i] - this.y - slopeHeight;
+      w.steerG.position.y = this.spec.wheelR + (this.grounded ? clamp(localGround, -0.18, 0.18) : -0.12);
       w.spin.rotation.x = this.wheelSpin;
       if (w.front) w.steerG.rotation.y = this.steer;
     }
@@ -718,14 +799,20 @@ export class VehicleManager {
     this.list = [];
     this.rng = makeRng(77);
     this.lastImpact = 0;
+    this.accumulator = 0;
     this.hits = []; // car-to-car hits this frame: { a, b, impact }
   }
 
   remove(v) {
     const i = this.list.indexOf(v);
-    if (i >= 0) this.list.splice(i, 1);
+    if (i < 0) return;
+    this.list.splice(i, 1);
     this.scene.remove(v.model.root);
     if (v.model.tail) v.model.tail.dispose();
+    if (v.model.siren) { v.model.siren.red.dispose(); v.model.siren.blue.dispose(); }
+    for (const mesh of v.model.dentable) {
+      if (mesh.userData.own) mesh.geometry.dispose();
+    }
   }
 
   spawn(type, x, z, heading, color) {
@@ -738,6 +825,33 @@ export class VehicleManager {
 
   // driven: the player's vehicle (or null), ctrl: its controls
   update(dt, driven, ctrl) {
+    const step = 1 / 120;
+    this.accumulator = Math.min(0.1, this.accumulator + Math.max(0, dt));
+    let impact = 0;
+    while (this.accumulator + 1e-10 >= step) {
+      for (const v of this.list) {
+        Object.assign(v.previousPose ||= {}, { x: v.x, y: v.y, z: v.z, heading: v.heading });
+      }
+      impact = Math.max(impact, this.step(step, driven, ctrl));
+      this.accumulator = Math.max(0, this.accumulator - step);
+    }
+    const alpha = this.accumulator / step;
+    for (const v of this.list) {
+      v.syncModel(dt);
+      const previous = v.previousPose;
+      if (!previous) continue;
+      v.model.root.position.set(
+        previous.x + (v.x - previous.x) * alpha,
+        previous.y + (v.y - previous.y) * alpha + Math.abs(Math.sin(v.chassisRoll / 2)) * v.spec.H * 0.75,
+        previous.z + (v.z - previous.z) * alpha,
+      );
+      v.model.root.rotation.y = previous.heading + (v.heading - previous.heading) * alpha;
+    }
+    this.lastImpact = impact;
+    return impact;
+  }
+
+  step(dt, driven, ctrl) {
     let impact = 0;
     for (const v of this.list) {
       if (v === driven) {
@@ -758,8 +872,6 @@ export class VehicleManager {
       }
     }
     impact = Math.max(impact, this.collidePairs(driven));
-    for (const v of this.list) v.syncModel(dt);
-    this.lastImpact = impact;
     return impact;
   }
 
@@ -800,6 +912,7 @@ export class VehicleManager {
       for (let j = i + 1; j < L.length; j++) {
         const b = L[j];
         if (a.asleep && b.asleep) continue;
+        if (a.y > b.y + b.spec.H || b.y > a.y + a.spec.H) continue;
         const dx0 = b.x - a.x;
         const dz0 = b.z - a.z;
         const reach = a.reach + b.reach;
@@ -844,21 +957,23 @@ export class VehicleManager {
         b.x += nx * depth * tb;
         b.z += nz * depth * tb;
         // relative velocity at contact
-        const rvx = b.vx - a.vx;
-        const rvz = b.vz - a.vz;
+        const raX = afx * oa;
+        const raZ = afz * oa;
+        const rbX = bfx * ob;
+        const rbZ = bfz * ob;
+        const rvx = b.vx + b.angVel * rbZ - a.vx - a.angVel * raZ;
+        const rvz = b.vz - b.angVel * rbX - a.vz + a.angVel * raX;
         const vn = rvx * nx + rvz * nz;
         if (vn >= 0) continue;
         const e = 0.2;
-        const jImp = (-(1 + e) * vn) / (1 / ma + 1 / mb);
+        const armA = raZ * nx - raX * nz;
+        const armB = rbZ * nx - rbX * nz;
+        const jImp = (-(1 + e) * vn) / (1 / ma + 1 / mb + armA ** 2 / (ma * Ia) + armB ** 2 / (mb * Ib));
         a.vx -= (jImp / ma) * nx;
         a.vz -= (jImp / ma) * nz;
         b.vx += (jImp / mb) * nx;
         b.vz += (jImp / mb) * nz;
         // spin from off-centre hits
-        const raX = afx * oa;
-        const raZ = afz * oa;
-        const rbX = bfx * ob;
-        const rbZ = bfz * ob;
         a.angVel -= ((raZ * nx - raX * nz) * jImp) / ma / Ia;
         b.angVel += ((rbZ * nx - rbX * nz) * jImp) / mb / Ib;
         a.asleep = false;

@@ -310,6 +310,7 @@ export class Pedestrians {
       if (Math.hypot(tx - p.pos.x, tz - p.pos.z) < 0.6) this.arrive(p);
     }
 
+    const previousX = p.pos.x, previousZ = p.pos.z;
     if (speed > 0) {
       const dx = gx - p.pos.x;
       const dz = gz - p.pos.z;
@@ -322,7 +323,13 @@ export class Pedestrians {
       }
     }
     if (p.mode !== 'down' && !p.seated) {
-      w.colliders.resolveCircle(p.pos, 0.3, p.pos.y + 0.2, 1.6);
+      const hit = w.colliders.resolveCircle(p.pos, 0.3, p.pos.y + 0.2, 1.6);
+      if (hit && speed > 0) {
+        const side = Math.sin(p.c.phase) > 0 ? 1 : -1;
+        p.pos.x += -hit.nz * side * speed * dt;
+        p.pos.z += hit.nx * side * speed * dt;
+        w.colliders.resolveCircle(p.pos, 0.3, p.pos.y + 0.2, 1.6);
+      }
       g.vehicles.pushOut(p.pos, 0.3);
     }
     p.pos.y = damp(p.pos.y, w.heightAt(p.pos.x, p.pos.z), 20, dt);
@@ -334,7 +341,7 @@ export class Pedestrians {
     // joints are only animated where they can be seen
     if (p.far) return;
     if (p.mode === 'idle' && (p.activity !== 'sit' || p.seated)) p.c.pose(dt, p.activity, g.time);
-    else p.c.animate(dt, p.mode === 'down' || p.mode === 'wait' ? 0 : speed);
+    else p.c.animate(dt, p.mode === 'down' || p.mode === 'wait' ? 0 : dt > 0 ? Math.hypot(p.pos.x - previousX, p.pos.z - previousZ) / dt : 0);
   }
 
   // ------------------------------------------------------------------ activities
